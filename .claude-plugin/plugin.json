@@ -1,0 +1,8 @@
+{
+  "name": "agent-crew",
+  "version": "0.2.0",
+  "description": "Pannello laterale con un Claude animato per main agent e subagent: avanzamento, worktree richiudibile, card dei file modificati e barre di utilizzo del piano (5h e settimanale).",
+  "author": { "name": "Andrea Capolupo" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

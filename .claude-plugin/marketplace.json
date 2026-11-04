@@ -1,0 +1,5 @@
+{
+  "name": "agent-crew-marketplace",
+  "owner": { "name": "Andrea Capolupo" },
+  "plugins": [{ "name": "agent-crew", "source": "./" }]
+}
