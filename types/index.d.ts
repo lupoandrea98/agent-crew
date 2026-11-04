@@ -19,7 +19,7 @@ export type FileTouch = {
   /** Percorso relativo al cwd. */
   path: string
   agentIds: string[]
-  kind: 'read' | 'edit' | 'write'
+  kind: 'read' | 'edit' | 'write' | 'delete'
   status: 'active' | 'done'
   added: number
   removed: number

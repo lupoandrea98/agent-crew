@@ -8,6 +8,7 @@ import { colorForPct, formatReset, labelFor, pickLimits } from './usage'
 import {
   IGNORED,
   applyPlan,
+  deletedPaths,
   isAnyRunning,
   lineCount,
   progress,
@@ -173,6 +174,7 @@ export const register: Register = on => {
         )
       })
       await update($, files, () => [])
+      await update($, worktreeOpen, () => true)
       const cwd = await read($, cwdAtom)
       void loadTree($, cwd).then(t => update($, tree, () => t))
     }
@@ -217,7 +219,9 @@ export const register: Register = on => {
       const raw = args.file_path ?? args.notebook_path
       if (typeof raw === 'string') {
         const path = relPath(cwd, raw)
-        const kind = tool === 'Edit' || tool === 'NotebookEdit' ? 'edit' : tool === 'Write' ? 'write' : 'read'
+        // Un Write su un file già presente nel worktree lo sovrascrive: conta come modifica.
+        const existed = tool === 'Write' && (await read($, tree)).includes(path)
+        const kind = tool === 'Edit' || tool === 'NotebookEdit' || existed ? 'edit' : tool === 'Write' ? 'write' : 'read'
         await update($, files, list => touch(list, { path, agentId: id, kind, status: 'active' }, Date.now()))
         const ran = await next(e)
         const added = tool === 'Edit' ? lineCount(args.new_string) : tool === 'Write' ? lineCount(args.content) : 0
@@ -225,6 +229,33 @@ export const register: Register = on => {
         await update($, files, list =>
           touch(list, { path, agentId: id, kind, status: 'done', added, removed }, Date.now()),
         )
+
+        return ran
+      }
+    }
+
+    if (tool === 'Bash' && typeof args.command === 'string') {
+      const cwd = await read($, cwdAtom)
+      const targets = deletedPaths(args.command)
+        .map(p => (p.startsWith('/') && !(cwd && p.startsWith(cwd)) ? '' : relPath(cwd, p).replace(/^(\.\/)+/, '')))
+        .filter(p => p !== '' && !p.startsWith('..') && !p.endsWith('/'))
+      if (targets.length > 0) {
+        const ran = await next(e)
+        for (const path of targets) {
+          const slash = path.lastIndexOf('/')
+          const dir = slash >= 0 ? `${cwd}/${path.slice(0, slash)}` : cwd
+          const name = path.slice(slash + 1)
+          let gone = true
+          try {
+            const entries: Array<{ name: string }> = await $.fs.list(dir)
+            gone = !entries.some(en => en.name === name)
+          } catch {
+            gone = true
+          }
+          if (gone) {
+            await update($, files, list => touch(list, { path, agentId: id, kind: 'delete', status: 'done' }, Date.now()))
+          }
+        }
 
         return ran
       }
@@ -249,6 +280,8 @@ export const register: Register = on => {
     await update($, files, list =>
       list.map(f => (f.agentIds.includes(id) ? { ...f, status: 'done' as const } : f)),
     )
+    // A lavoro concluso il worktree si chiude, così si vedono subito i file modificati.
+    if (!isAnyRunning(await read($, agents))) await update($, worktreeOpen, () => false)
 
     return next(e)
   })
@@ -332,7 +365,8 @@ export const register: Register = on => {
     // Agganciato di lato il corpo riempie l'altezza del pannello, così lo spacer spinge l'utilizzo in fondo.
     const minHeight = paneProps?.placement === 'dock' ? paneProps.scroll?.bodyRows : undefined
     const cardWidth = Math.max(180, cols * 8 - 16)
-    const touchLabel =(f: FileTouch) => (f.kind === 'write' ? 'creato' : 'modificato')
+    const touchLabel = (f: FileTouch) =>
+      f.kind === 'delete' ? 'eliminato' : f.kind === 'write' ? 'creato' : 'modificato'
 
     return (
       <Box flexDirection="column" gap={1} flexGrow={1} minHeight={minHeight}>
@@ -344,7 +378,7 @@ export const register: Register = on => {
           {isOpen &&
             treeRows(paths, touched).map(r => {
               const t = r.touch
-              const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : '✓ '
+              const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : t.kind === 'delete' ? '✗ ' : '✓ '
               const color = t ? colorOf(list, t.agentIds[t.agentIds.length - 1] ?? MAIN) : undefined
               return (
                 <Text key={r.path} color={color} bold={t?.status === 'active'} dimColor={!t}>
@@ -361,27 +395,32 @@ export const register: Register = on => {
             const name = baseName(f.path)
             const c = colorFor(name)
             const who = `${touchLabel(f)} da ${f.agentIds.map(nameOf).join(', ')}`
+            const removedFile = f.kind === 'delete'
             return Svg ? (
               <Svg
                 key={f.path}
                 source={cardSvg({
                   path: f.path,
                   width: cardWidth,
-                  lines: [
-                    { text: who },
-                    { text: `+${f.added}  −${f.removed}`, color: f.removed > f.added ? '#e5534b' : '#57ab5a' },
-                  ],
+                  lines: removedFile
+                    ? [{ text: who, color: '#e5534b' }]
+                    : [
+                        { text: who },
+                        { text: `+${f.added}  −${f.removed}`, color: f.removed > f.added ? '#e5534b' : '#57ab5a' },
+                      ],
                 })}
-                alt={`${name}: ${who}, +${f.added} −${f.removed}`}
+                alt={removedFile ? `${name}: ${who}` : `${name}: ${who}, +${f.added} −${f.removed}`}
                 width={cardWidth}
               />
             ) : (
-              <Box key={f.path} flexDirection="column" borderStyle="bold" borderColor={c.border} paddingX={1}>
-                <Text bold color={c.text}>{name}</Text>
-                <Text dimColor>{who}</Text>
-                <Text>
-                  <Text color="green">+{f.added}</Text> <Text color="red">−{f.removed}</Text>
-                </Text>
+              <Box key={f.path} flexDirection="column" borderStyle="bold" borderColor={removedFile ? 'red' : c.border} paddingX={1}>
+                <Text bold color={removedFile ? 'red' : c.text}>{name}</Text>
+                <Text dimColor={!removedFile} color={removedFile ? 'red' : undefined}>{who}</Text>
+                {!removedFile && (
+                  <Text>
+                    <Text color="green">+{f.added}</Text> <Text color="red">−{f.removed}</Text>
+                  </Text>
+                )}
               </Box>
             )
           })}

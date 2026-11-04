@@ -7,7 +7,24 @@ export const relPath = (cwd: string, p: string): string => {
   return p.replace(/^\/+/, '')
 }
 
-const rank = { read: 0, edit: 1, write: 2 } as const
+const rank = { read: 0, edit: 1, write: 2, delete: 3 } as const
+
+/** Percorsi eliminati da `rm`, `git rm` o `unlink` in un comando shell; glob e variabili sono ignorati. */
+export const deletedPaths = (command: string): string[] => {
+  const out: string[] = []
+  for (const part of command.split(/&&|\|\||[;|\n]/)) {
+    const tokens = (part.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(t => t.replace(/^(["'])(.*)\1$/, '$2'))
+    let i = tokens[0] === 'sudo' ? 1 : 0
+    if (tokens[i] === 'git' && tokens[i + 1] === 'rm') i += 2
+    else if (tokens[i] === 'rm' || tokens[i] === 'unlink') i += 1
+    else continue
+    for (const t of tokens.slice(i)) {
+      if (t.startsWith('-') || /[*?$`]/.test(t)) continue
+      out.push(t)
+    }
+  }
+  return out
+}
 
 /** Aggiunge o fonde un accesso a un file; il tipo più "forte" vince. */
 export const touch = (
