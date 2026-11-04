@@ -1,9 +1,9 @@
-// Card rendering helpers for the agent-crew hooks. Pure TypeScript: no deps, no DOM, no Node APIs.
+// Helper di rendering delle card per gli hook di agent-crew. TypeScript puro: niente dipendenze, DOM o API Node.
 
 export type CardColor = { border: string; text: string; dark1: string; dark2: string }
 
-// 8 distinct hues. border = vivid color, text = same hue slightly lighter,
-// dark1 = ~30% lightness, dark2 = ~15% lightness.
+// 8 tonalità distinte. border = colore vivo, text = stessa tinta un po' più chiara,
+// dark1 = ~30% di luminosità, dark2 = ~15% di luminosità.
 export const CARD_COLORS: CardColor[] = [
   { border: '#ff8000', text: '#ffa640', dark1: '#994d00', dark2: '#4d2600' }, // arancio
   { border: '#00e0ff', text: '#40e8ff', dark1: '#008699', dark2: '#00434d' }, // ciano
@@ -15,7 +15,7 @@ export const CARD_COLORS: CardColor[] = [
   { border: '#9900ff', text: '#c240ff', dark1: '#5c0099', dark2: '#2e004d' }, // viola
 ]
 
-// Stable string hash: weighted sum of char codes.
+// Hash stabile della stringa: somma pesata dei codici dei caratteri.
 function hashName(name: string): number {
   let h = 0
   for (let i = 0; i < name.length; i++) {
@@ -33,7 +33,8 @@ export function baseName(path: string): string {
   return idx >= 0 ? path.slice(idx + 1) : path
 }
 
-export type CardLine = { text: string; color?: string }
+/** Una riga della card: testo in un solo colore, oppure `spans` per colorare le parti a parte (es. +3 verde, −1 rosso). */
+export type CardLine = { text: string; color?: string; spans?: Array<{ text: string; color?: string }> }
 
 function escXml(s: string): string {
   return s
@@ -49,21 +50,24 @@ function truncate(s: string, max: number): string {
   return s.slice(0, Math.max(0, max - 1)) + '…'
 }
 
+// Altezza della card per un numero di righe: passata all'Svg, così il desktop riserva lo spazio prima di caricarla.
+export const cardHeight = (lines: number): number => 10 + 26 + 18 * lines + 10
+
 export function cardSvg(opts: { path: string; lines: CardLine[]; width: number }): string {
   const W = Math.max(opts.width, 160)
-  const H = 10 + 26 + 18 * opts.lines.length + 10
+  const H = cardHeight(opts.lines.length)
 
   const name = baseName(opts.path)
   const color = colorFor(name)
   const gid = 'g' + hashName(name)
 
-  // Title mini-card: ~8.5px per monospace bold char at 13px, plus 20px padding.
+  // Titolo della mini-card: ~8.5px per carattere monospace in grassetto a 13px, più 20px di padding.
   const maxTitleW = W - 20
   const maxNameChars = Math.max(1, Math.floor((maxTitleW - 20) / 8.5))
   const shownName = truncate(name, maxNameChars)
   const titleW = Math.round(shownName.length * 8.5 + 20)
 
-  // Body lines: ~7.2px per monospace char at 12px, available width W - 24.
+  // Righe del corpo: ~7.2px per carattere monospace a 12px, larghezza disponibile W - 24.
   const maxLineChars = Math.max(1, Math.floor((W - 24) / 7.2))
 
   const parts: string[] = []
@@ -86,8 +90,12 @@ export function cardSvg(opts: { path: string; lines: CardLine[]; width: number }
   opts.lines.forEach((line, i) => {
     const y = 44 + 18 * i
     const fill = line.color ?? '#cfcfcf'
+    // Con `spans` ogni parte ha il suo colore; xml:space="preserve" mantiene gli spazi tra le parti.
+    const body = line.spans
+      ? line.spans.map(s => `<tspan fill="${escXml(s.color ?? fill)}">${escXml(s.text)}</tspan>`).join('')
+      : escXml(truncate(line.text, maxLineChars))
     parts.push(
-      `<text x="12" y="${y}" font-family="ui-monospace,Menlo,monospace" font-size="12" fill="${escXml(fill)}">${escXml(truncate(line.text, maxLineChars))}</text>`
+      `<text x="12" y="${y}" xml:space="preserve" font-family="ui-monospace,Menlo,monospace" font-size="12" fill="${escXml(fill)}">${body}</text>`
     )
   })
   parts.push('</svg>')

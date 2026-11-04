@@ -2,13 +2,15 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { AgentRow, FileTouch } from '../types'
-import { baseName, cardSvg, colorFor } from './cards'
+import { baseName, cardHeight, cardSvg, colorFor } from './cards'
 import { CLAUDE_COLUMNS, CLAUDE_ROWS, asciiClaude, claudeCells, claudeSvg, pixelBar } from './claudes'
 import { colorForPct, formatReset, labelFor, pickLimits } from './usage'
 import {
   IGNORED,
   applyPlan,
   deletedPaths,
+  diffLines,
+  fileKind,
   isAnyRunning,
   lineCount,
   progress,
@@ -23,9 +25,23 @@ const COLORS = ['yellow', 'cyan', 'magenta', 'green', 'blue', 'red'] as const
 const PLAN_TOOLS = new Set(['TodoWrite', 'mcp__ccd_turn__update_plan'])
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
 const TICK_MS = 250
+// Origini di un prompt che non è una nuova richiesta della persona (PromptOrigin.kind).
+const AUTOMATIC_ORIGINS = new Set([
+  'task-notification',
+  'scheduled-trigger',
+  'peer',
+  'peer-send-message',
+  'projects-relay',
+  'coordinator',
+  'observer',
+  'observer-activity',
+  'auto-continuation',
+])
 
 // Il frame d'animazione deriva dall'orologio: nessuno stato da salvare, il timer chiede solo il ridisegno.
 let ticker: { cancel: () => void } | undefined
+// Solo il terminale usa il frame: sul desktop lo sprite si anima da sé e i ridisegni a 4 Hz fanno scattare lo scroll.
+let terminalSeen = false
 // Tiene vivo il conto alla rovescia dei reset anche a riposo.
 let usageTicker: { cancel: () => void } | undefined
 
@@ -64,10 +80,9 @@ const withMain = (list: AgentRow[]): AgentRow[] =>
 const patch = (id: string, fn: (a: AgentRow) => Partial<AgentRow>) => (list: AgentRow[]) =>
   withMain(list).map(a => (a.id === id ? { ...a, ...fn(a) } : a))
 
-const colorOf = (list: AgentRow[], id: string) =>
-  id === MAIN ? '#D97757' : COLORS[(list.find(a => a.id === id)?.slot ?? 0) % COLORS.length]
+const agentColor = (a: Pick<AgentRow, 'id' | 'slot'>) => (a.id === MAIN ? '#D97757' : COLORS[a.slot % COLORS.length])
 
-const nameColor = (a: AgentRow) => (a.id === MAIN ? '#D97757' : COLORS[a.slot % COLORS.length])
+const colorOf = (list: AgentRow[], id: string) => agentColor({ id, slot: list.find(a => a.id === id)?.slot ?? 0 })
 
 async function loadTree($: any, cwd: string): Promise<string[]> {
   const out: string[] = []
@@ -93,6 +108,19 @@ async function loadTree($: any, cwd: string): Promise<string[]> {
   return out
 }
 
+/** True se `path` (relativo a `cwd`) non è più nella sua cartella. */
+async function isGone($: any, cwd: string, path: string): Promise<boolean> {
+  const slash = path.lastIndexOf('/')
+  const dir = slash >= 0 ? `${cwd}/${path.slice(0, slash)}` : cwd
+  const name = path.slice(slash + 1)
+  try {
+    const entries: Array<{ name: string }> = await $.fs.list(dir)
+    return !entries.some(en => en.name === name)
+  } catch {
+    return true
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -109,7 +137,7 @@ export const register: Register = on => {
     ticker = $.clock.every(TICK_MS, () => {
       // Niente ridisegni a lavoro concluso: l'ultimo frame resta fermo.
       void read($, agents).then(list => {
-        if (isAnyRunning(list)) $.ui.invalidate('ui.render')
+        if (terminalSeen && isAnyRunning(list)) $.ui.invalidate('ui.render')
       })
     })
 
@@ -162,9 +190,12 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    // Una nuova richiesta di lavoro (non uno slash command) riparte da zero:
+    // Una nuova richiesta della persona (non uno slash command) riparte da zero:
     // via gli agent conclusi e le loro barre, via le card dei file.
-    if (!(e as unknown as { command?: unknown }).command) {
+    // Le consegne automatiche (rapporto di un subagent, notifica di task, altra sessione) non azzerano nulla,
+    // altrimenti il rapporto di un subagent cancellerebbe i file che ha appena modificato.
+    const { command, isMeta, origin } = e as unknown as { command?: unknown; isMeta?: boolean; origin?: { kind?: string } }
+    if (!command && !isMeta && !AUTOMATIC_ORIGINS.has(origin?.kind ?? '')) {
       await update($, agents, list => {
         const kept = list.filter(a => a.id === MAIN || a.status === 'running')
         return withMain(kept).map((a, i) =>
@@ -221,11 +252,13 @@ export const register: Register = on => {
         const path = relPath(cwd, raw)
         // Un Write su un file già presente nel worktree lo sovrascrive: conta come modifica.
         const existed = tool === 'Write' && (await read($, tree)).includes(path)
-        const kind = tool === 'Edit' || tool === 'NotebookEdit' || existed ? 'edit' : tool === 'Write' ? 'write' : 'read'
+        const kind = fileKind(tool, existed)
         await update($, files, list => touch(list, { path, agentId: id, kind, status: 'active' }, Date.now()))
         const ran = await next(e)
-        const added = tool === 'Edit' ? lineCount(args.new_string) : tool === 'Write' ? lineCount(args.content) : 0
-        const removed = tool === 'Edit' ? lineCount(args.old_string) : 0
+        // Edit: solo le righe davvero cambiate, come il diff nativo; Write: tutte le righe del contenuto.
+        const edit = tool === 'Edit' ? diffLines(args.old_string, args.new_string) : undefined
+        const added = edit ? edit.added : tool === 'Write' ? lineCount(args.content) : 0
+        const removed = edit ? edit.removed : 0
         await update($, files, list =>
           touch(list, { path, agentId: id, kind, status: 'done', added, removed }, Date.now()),
         )
@@ -242,17 +275,7 @@ export const register: Register = on => {
       if (targets.length > 0) {
         const ran = await next(e)
         for (const path of targets) {
-          const slash = path.lastIndexOf('/')
-          const dir = slash >= 0 ? `${cwd}/${path.slice(0, slash)}` : cwd
-          const name = path.slice(slash + 1)
-          let gone = true
-          try {
-            const entries: Array<{ name: string }> = await $.fs.list(dir)
-            gone = !entries.some(en => en.name === name)
-          } catch {
-            gone = true
-          }
-          if (gone) {
+          if (await isGone($, cwd, path)) {
             await update($, files, list => touch(list, { path, agentId: id, kind: 'delete', status: 'done' }, Date.now()))
           }
         }
@@ -293,7 +316,9 @@ export const register: Register = on => {
     const isTerminal = (e as unknown as { surface?: string }).surface === 'terminal'
     const Svg = isTerminal ? undefined : ui.Svg
     const Raster = isTerminal ? ui.Raster : undefined
-    const frame = Math.floor((await $.clock.now()) / TICK_MS)
+    if (isTerminal) terminalSeen = true
+    const now = await $.clock.now()
+    const frame = Math.floor(now / TICK_MS)
     const list = await read($, agents)
     const touched = await read($, files)
     const paths = await read($, tree)
@@ -302,7 +327,6 @@ export const register: Register = on => {
     const nameOf = (id: string) => list.find(a => a.id === id)?.label ?? id
     const isOpen = await read($, worktreeOpen)
     const usage = await read($, limits)
-    const now = await $.clock.now()
 
     const usageBlock = (
       <Box flexDirection="row" gap={2} alignSelf="flex-end">
@@ -331,7 +355,15 @@ export const register: Register = on => {
       return (
         <Box key={a.id} flexDirection="row" gap={1} alignItems="center">
           {Svg ? (
-            <Svg source={claudeSvg(a.slot, a.status)} alt={`${a.label}: ${a.status}`} width={32} height={32} isInteractive />
+            // Il frame interattivo serve solo all'animazione: a lavoro fermo basta un'immagine, che non cattura la rotella.
+            <Svg
+              key={`claude-${a.id}-${a.status}`}
+              source={claudeSvg(a.slot, a.status)}
+              alt={`${a.label}: ${a.status}`}
+              width={32}
+              height={32}
+              isInteractive={a.status === 'running'}
+            />
           ) : Raster ? (
             <Raster
               key={`claude-${a.id}`}
@@ -347,7 +379,7 @@ export const register: Register = on => {
             </Box>
           )}
           <Box flexDirection="column" flexGrow={1}>
-            <Text bold color={nameColor(a)}>{a.label}</Text>
+            <Text bold color={agentColor(a)}>{a.label}</Text>
             <Text dimColor>{a.model}</Text>
             <Box flexDirection="row" gap={1}>
               <Text color={a.status === 'completed' ? 'green' : 'cyan'}>{pixelBar(pct)}</Text>
@@ -363,67 +395,84 @@ export const register: Register = on => {
     }).props
     const cols = paneProps?.bodyColumns ?? 40
     // Agganciato di lato il corpo riempie l'altezza del pannello, così lo spacer spinge l'utilizzo in fondo.
-    const minHeight = paneProps?.placement === 'dock' ? paneProps.scroll?.bodyRows : undefined
+    // Sul desktop le righe diventano pixel e l'albero sforerebbe la finestra: lì niente altezza minima.
+    const minHeight = isTerminal && paneProps?.placement === 'dock' ? paneProps.scroll?.bodyRows : undefined
     const cardWidth = Math.max(180, cols * 8 - 16)
     const touchLabel = (f: FileTouch) =>
       f.kind === 'delete' ? 'eliminato' : f.kind === 'write' ? 'creato' : 'modificato'
 
+    const worktreeBox = (
+      <Box flexDirection="column" borderStyle="round" paddingX={1}>
+        <Button key="worktree-toggle" plain onPress={() => void update($, worktreeOpen, o => !o)}>
+          <Text bold>{isOpen ? '▾' : '▸'} Worktree</Text>
+        </Button>
+        {isOpen &&
+          treeRows(paths, touched).map(r => {
+            const t = r.touch
+            const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : t.kind === 'delete' ? '✗ ' : '✓ '
+            const color = t ? colorOf(list, t.agentIds[t.agentIds.length - 1] ?? MAIN) : undefined
+            return (
+              <Text key={r.path} color={color} bold={t?.status === 'active'} dimColor={!t}>
+                {'  '.repeat(r.depth)}{mark}{r.name}{r.isDir ? '/' : ''}
+              </Text>
+            )
+          })}
+      </Box>
+    )
+
+    const fileCard = (f: FileTouch) => {
+      const name = baseName(f.path)
+      const c = colorFor(name)
+      const who = `${touchLabel(f)} da ${f.agentIds.map(nameOf).join(', ')}`
+      const removedFile = f.kind === 'delete'
+      return Svg ? (
+        <Svg
+          key={f.path}
+          source={cardSvg({
+            path: f.path,
+            width: cardWidth,
+            lines: removedFile
+              ? [{ text: who, color: '#e5534b' }]
+              : [
+                  { text: who },
+                  {
+                    text: `+${f.added}  −${f.removed}`,
+                    spans: [
+                      { text: `+${f.added}`, color: '#57ab5a' },
+                      { text: '  ' },
+                      { text: `−${f.removed}`, color: '#e5534b' },
+                    ],
+                  },
+                ],
+          })}
+          alt={removedFile ? `${name}: ${who}` : `${name}: ${who}, +${f.added} −${f.removed}`}
+          width={cardWidth}
+          height={cardHeight(removedFile ? 1 : 2)}
+        />
+      ) : (
+        <Box key={f.path} flexDirection="column" borderStyle="bold" borderColor={removedFile ? 'red' : c.border} paddingX={1}>
+          <Text bold color={removedFile ? 'red' : c.text}>{name}</Text>
+          <Text dimColor={!removedFile} color={removedFile ? 'red' : undefined}>{who}</Text>
+          {!removedFile && (
+            <Text>
+              <Text color="green">+{f.added}</Text> <Text color="red">−{f.removed}</Text>
+            </Text>
+          )}
+        </Box>
+      )
+    }
+
     return (
       <Box flexDirection="column" gap={1} flexGrow={1} minHeight={minHeight}>
         {list.filter(a => a.status !== 'idle').map(agentRow)}
-        <Box flexDirection="column" borderStyle="round" paddingX={1}>
-          <Button key="worktree-toggle" plain onPress={() => void update($, worktreeOpen, o => !o)}>
-            <Text bold>{isOpen ? '▾' : '▸'} Worktree</Text>
-          </Button>
-          {isOpen &&
-            treeRows(paths, touched).map(r => {
-              const t = r.touch
-              const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : t.kind === 'delete' ? '✗ ' : '✓ '
-              const color = t ? colorOf(list, t.agentIds[t.agentIds.length - 1] ?? MAIN) : undefined
-              return (
-                <Text key={r.path} color={color} bold={t?.status === 'active'} dimColor={!t}>
-                  {'  '.repeat(r.depth)}{mark}{r.name}{r.isDir ? '/' : ''}
-                </Text>
-              )
-            })}
-        </Box>
+        {worktreeBox}
         {finished && edited.length > 0 && (
           <Text dimColor>Lavoro concluso: {edited.length} file toccati.</Text>
         )}
-        {finished &&
-          edited.map(f => {
-            const name = baseName(f.path)
-            const c = colorFor(name)
-            const who = `${touchLabel(f)} da ${f.agentIds.map(nameOf).join(', ')}`
-            const removedFile = f.kind === 'delete'
-            return Svg ? (
-              <Svg
-                key={f.path}
-                source={cardSvg({
-                  path: f.path,
-                  width: cardWidth,
-                  lines: removedFile
-                    ? [{ text: who, color: '#e5534b' }]
-                    : [
-                        { text: who },
-                        { text: `+${f.added}  −${f.removed}`, color: f.removed > f.added ? '#e5534b' : '#57ab5a' },
-                      ],
-                })}
-                alt={removedFile ? `${name}: ${who}` : `${name}: ${who}, +${f.added} −${f.removed}`}
-                width={cardWidth}
-              />
-            ) : (
-              <Box key={f.path} flexDirection="column" borderStyle="bold" borderColor={removedFile ? 'red' : c.border} paddingX={1}>
-                <Text bold color={removedFile ? 'red' : c.text}>{name}</Text>
-                <Text dimColor={!removedFile} color={removedFile ? 'red' : undefined}>{who}</Text>
-                {!removedFile && (
-                  <Text>
-                    <Text color="green">+{f.added}</Text> <Text color="red">−{f.removed}</Text>
-                  </Text>
-                )}
-              </Box>
-            )
-          })}
+        {finished && edited.length === 0 && list.some(a => a.id === MAIN && (a.status === 'completed' || a.status === 'failed')) && (
+          <Text dimColor>Lavoro concluso: nessun file modificato.</Text>
+        )}
+        {finished && edited.map(fileCard)}
         <Box flexGrow={1} />
         {usageBlock}
       </Box>

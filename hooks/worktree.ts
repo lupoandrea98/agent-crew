@@ -65,6 +65,37 @@ export const touch = (
 export const lineCount = (s: unknown): number =>
   typeof s === 'string' && s.length > 0 ? s.split('\n').length : 0
 
+/**
+ * Righe aggiunte e tolte da un Edit, contando solo quelle davvero cambiate (sottosequenza comune più lunga),
+ * come fa un diff: le righe rimaste uguali in `old_string` e `new_string` non contano.
+ */
+export const diffLines = (oldText: unknown, newText: unknown): { added: number; removed: number } => {
+  const a = typeof oldText === 'string' && oldText.length > 0 ? oldText.split('\n') : []
+  const b = typeof newText === 'string' && newText.length > 0 ? newText.split('\n') : []
+  // Testi molto lunghi: ripiego sul solo prefisso/suffisso comune, per non pesare sul ridisegno.
+  if (a.length * b.length > 250_000) {
+    let start = 0
+    while (start < a.length && start < b.length && a[start] === b[start]) start++
+    let end = 0
+    while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++
+    return { added: b.length - start - end, removed: a.length - start - end }
+  }
+  let prev = new Array<number>(b.length + 1).fill(0)
+  for (let i = 1; i <= a.length; i++) {
+    const row = new Array<number>(b.length + 1).fill(0)
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = a[i - 1] === b[j - 1] ? (prev[j - 1] ?? 0) + 1 : Math.max(prev[j] ?? 0, row[j - 1] ?? 0)
+    }
+    prev = row
+  }
+  const common = prev[b.length] ?? 0
+  return { added: b.length - common, removed: a.length - common }
+}
+
+/** Tipo di accesso di un tool sui file; un Write su un file già presente è una modifica. */
+export const fileKind = (tool: string, existed: boolean): FileTouch['kind'] =>
+  tool === 'Edit' || tool === 'NotebookEdit' || existed ? 'edit' : tool === 'Write' ? 'write' : 'read'
+
 /** Percentuale stimata dai tool call: sale e si ferma prima del 90%. */
 export const estimate = (calls: number): number =>
   Math.min(90, Math.round(100 * (1 - Math.pow(0.85, calls))))

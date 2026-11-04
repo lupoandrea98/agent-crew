@@ -1,14 +1,5 @@
 export type Mood = 'running' | 'idle' | 'completed' | 'failed'
 
-export const ACCESSORIES: string[] = [
-  'cappellino',
-  'sciarpa',
-  'pipa',
-  'occhiali',
-  'corona',
-  'cravatta',
-]
-
 // Sprite 8-bit su griglia 16x16. Ogni pixel e' un quadratino da 4 unita' (viewBox 64).
 // Legenda: '.' trasparente. Ogni layer e' una mappa carattere -> colore.
 
@@ -82,14 +73,32 @@ const MOUTH_SAD: Grid = grid({
   9: '......K..K......',
 })
 
-// Overlay degli accessori, uno per nome in ACCESSORIES
+const EYES: Record<Mood, Grid> = {
+  running: EYES_OPEN,
+  idle: EYES_OPEN,
+  completed: EYES_HAPPY,
+  failed: EYES_X,
+}
+
+const MOUTH: Record<Mood, Grid> = {
+  running: MOUTH_NEUTRAL,
+  idle: MOUTH_NEUTRAL,
+  completed: MOUTH_HAPPY,
+  failed: MOUTH_SAD,
+}
+
+// Accessori nell'ordine dei slot: simbolo ASCII e overlay sul corpo.
 interface Accessory {
+  name: string
+  symbol: string
   grid: Grid
   palette: Palette
 }
 
-const ACCESSORY_LAYERS: Record<string, Accessory> = {
-  cappellino: {
+export const ACCESSORIES: Accessory[] = [
+  {
+    name: 'cappellino',
+    symbol: '^',
     grid: grid({
       1: '....CCCCCCCC....',
       2: '...CCCCCCCCCC...',
@@ -97,7 +106,9 @@ const ACCESSORY_LAYERS: Record<string, Accessory> = {
     }),
     palette: { C: '#3B5BA9', D: '#2E4678' },
   },
-  sciarpa: {
+  {
+    name: 'sciarpa',
+    symbol: '~',
     grid: grid({
       10: '..RRRRRRRRRRRR..',
       11: '.............R..',
@@ -106,7 +117,9 @@ const ACCESSORY_LAYERS: Record<string, Accessory> = {
     }),
     palette: { R: '#C0392B' },
   },
-  pipa: {
+  {
+    name: 'pipa',
+    symbol: 'b',
     grid: grid({
       8: '.............PP.',
       9: '..........TTTPP.',
@@ -114,7 +127,9 @@ const ACCESSORY_LAYERS: Record<string, Accessory> = {
     }),
     palette: { T: '#D8C3A5', P: '#6B3E1F' },
   },
-  occhiali: {
+  {
+    name: 'occhiali',
+    symbol: '8',
     grid: grid({
       4: '...GGGG..GGGG...',
       5: '...G..GGGG..G...',
@@ -123,14 +138,18 @@ const ACCESSORY_LAYERS: Record<string, Accessory> = {
     }),
     palette: { G: '#222222' },
   },
-  corona: {
+  {
+    name: 'corona',
+    symbol: 'W',
     grid: grid({
       0: '...Y...Y...Y....',
       1: '...OOOOOOOOOO...',
     }),
     palette: { Y: '#F4C430', O: '#B8860B' },
   },
-  cravatta: {
+  {
+    name: 'cravatta',
+    symbol: 'v',
     grid: grid({
       10: '.......NN.......',
       11: '......NNNN......',
@@ -138,7 +157,7 @@ const ACCESSORY_LAYERS: Record<string, Accessory> = {
     }),
     palette: { N: '#1F1F1F' },
   },
-}
+]
 
 const ASCII_FACE: Record<Mood, string> = {
   running: '(o_o)',
@@ -147,23 +166,11 @@ const ASCII_FACE: Record<Mood, string> = {
   idle: '(-_-)',
 }
 
-const ASCII_SYMBOL: Record<string, string> = {
-  cappellino: '^',
-  sciarpa: '~',
-  pipa: 'b',
-  occhiali: '8',
-  corona: 'W',
-  cravatta: 'v',
-}
-
-function accessoryIndex(slot: number): number {
+// Slot negativi o non finiti ricadono su un indice positivo nella lista.
+function accessoryFor(slot: number): Accessory {
   const n = ACCESSORIES.length
   const s = Number.isFinite(slot) ? Math.floor(slot) : 0
-  return ((s % n) + n) % n
-}
-
-function accessoryName(slot: number): string {
-  return ACCESSORIES[accessoryIndex(slot)] ?? ACCESSORIES[0] ?? ''
+  return ACCESSORIES[((s % n) + n) % n]!
 }
 
 // Converte le celle di un carattere in un unico path: una sotto-forma
@@ -196,23 +203,30 @@ function layer(g: Grid, palette: Palette): string {
   return out
 }
 
-export function claudeSvg(slot: number, mood: Mood): string {
-  const body = layer(BODY, BODY_PALETTE[mood])
+// Lo SVG dipende solo da accessorio e mood: si calcola una volta sola.
+const svgCache = new Map<string, string>()
 
-  const eyesGrid =
-    mood === 'completed' ? EYES_HAPPY : mood === 'failed' ? EYES_X : EYES_OPEN
-  const mouthGrid =
-    mood === 'completed' ? MOUTH_HAPPY : mood === 'failed' ? MOUTH_SAD : MOUTH_NEUTRAL
+export function claudeSvg(slot: number, mood: Mood): string {
+  const acc = accessoryFor(slot)
+  const key = `${ACCESSORIES.indexOf(acc)}:${mood}`
+  const cached = svgCache.get(key)
+  if (cached !== undefined) return cached
+  const svg = renderSvg(acc, mood)
+  svgCache.set(key, svg)
+  return svg
+}
+
+function renderSvg(acc: Accessory, mood: Mood): string {
+  const body = layer(BODY, BODY_PALETTE[mood])
 
   const blink =
     mood === 'running' || mood === 'idle'
       ? '<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.93;0.97" dur="3s" calcMode="discrete" repeatCount="indefinite"/>'
       : ''
-  const eyes = `<g>${blink}${layer(eyesGrid, INK)}</g>`
-  const mouth = layer(mouthGrid, INK)
+  const eyes = `<g>${blink}${layer(EYES[mood], INK)}</g>`
+  const mouth = layer(MOUTH[mood], INK)
 
-  const acc = ACCESSORY_LAYERS[accessoryName(slot)]
-  const accessory = acc ? layer(acc.grid, acc.palette) : ''
+  const accessory = layer(acc.grid, acc.palette)
 
   let motion = ''
   if (mood === 'running') {
@@ -231,11 +245,10 @@ export function claudeSvg(slot: number, mood: Mood): string {
 }
 
 export function asciiClaude(slot: number, mood: Mood, frame = 0): string[] {
-  const sym = ASCII_SYMBOL[accessoryName(slot)]
   const face = ASCII_FACE[mood]
   // Corpo e faccia fermi; in running alterna solo il piede sollevato.
   const legs = mood !== 'running' ? ' /   \\ ' : Math.floor(frame / 2) % 2 === 0 ? ' |   \\ ' : ' /   | '
-  return [`   ${sym}   `, ` ${face} `, legs]
+  return [`   ${accessoryFor(slot).symbol}   `, ` ${face} `, legs]
 }
 
 // Barra a blocchi: '█' pieni e '░' vuoti. pct null => 0 pieni.
@@ -301,8 +314,8 @@ export function claudePixels(slot: number, mood: Mood, frame: number): Pixels {
     const row = canvas[r]
     if (row) row[c] = color
   }
-  const acc = ACCESSORY_LAYERS[accessoryName(slot)]
-  if (acc) paint(canvas, acc.grid, acc.palette, 0)
+  const acc = accessoryFor(slot)
+  paint(canvas, acc.grid, acc.palette, 0)
   return canvas
 }
 
