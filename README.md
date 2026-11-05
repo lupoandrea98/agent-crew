@@ -2,7 +2,13 @@
 
 Pannello laterale per Claude Code in stile videogioco fantasy 8-bit che mostra il lavoro in corso: un eroe animato per il main agent (il mago, con cappello e bastone magico) e per ogni subagent (cavaliere, ladro, re, arciere, chierico, barbaro), con modello e barra di avanzamento, l'albero del worktree (richiudibile cliccando sul titolo) con i file toccati evidenziati e le card dei file modificati a lavoro concluso.
 
-Sopra la barra di scrittura c'è un HUD con tre barre: **Vita** (rossa, finestra di utilizzo settimanale), **Mana** (blu, finestra delle 5 ore) e **Vigore** (verde, il contesto della sessione); Vita e Mana mostrano il conto alla rovescia del reset. Le barre sono piene quando la risorsa è disponibile e si svuotano man mano che la usi. L'HUD si adatta alla larghezza senza mai andare a capo: prima spariscono le etichette, poi il conto alla rovescia, infine la fascia cede il posto.
+Sopra la barra di scrittura c'è un HUD con tre barre:
+    - **Vita** (rossa, finestra di utilizzo settimanale)
+    - **Mana** (blu, finestra delle 5 ore) 
+    - **Vigore** (verde, il contesto della sessione)
+Vita e Mana mostrano il conto alla rovescia del reset. 
+Le barre sono piene quando la risorsa è disponibile e si svuotano man mano che la usi. 
+L'HUD si adatta alla larghezza 
 
 Nel terminale sprite e icone sono disegnati a mezzi blocchi (con ripiego ASCII), sull'app desktop in SVG.
 
