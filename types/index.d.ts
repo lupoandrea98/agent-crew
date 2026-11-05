@@ -35,6 +35,11 @@ export type RateLimitRow = {
   resetsAt?: string
 }
 
+export type ContextRow = {
+  /** 0-100 di contesto usato; null finche' non e' noto. */
+  percent: number | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-crew': {
@@ -44,6 +49,7 @@ declare module 'claude-code' {
       tree: Shaped<string[]>
       cwd: Shaped<string>
       limits: Shaped<RateLimitRow[]>
+      context: Shaped<ContextRow>
       /** Worktree espanso (true) o richiuso (false). */
       worktreeOpen: Shaped<boolean>
     }

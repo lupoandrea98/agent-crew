@@ -1,7 +1,7 @@
 {
   "name": "agent-crew",
-  "version": "0.2.2",
-  "description": "Pannello laterale con un Claude animato per main agent e subagent: avanzamento, worktree richiudibile, card dei file modificati e barre di utilizzo del piano (5h e settimanale).",
+  "version": "0.3.0",
+  "description": "Pannello laterale in stile fantasy 8-bit con un eroe animato per main agent (mago) e subagent: avanzamento, worktree richiudibile, card dei file modificati e, sopra il prompt, l'HUD Vita (contesto), Mana (5h) e Vigore (settimanale).",
   "author": { "name": "Andrea Capolupo" },
   "license": "MIT",
   "types": "./types/index.d.ts"

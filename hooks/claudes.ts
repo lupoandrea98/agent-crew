@@ -3,8 +3,8 @@ export type Mood = 'running' | 'idle' | 'completed' | 'failed'
 // Sprite 8-bit su griglia 16x16. Ogni pixel e' un quadratino da 4 unita' (viewBox 64).
 // Legenda: '.' trasparente. Ogni layer e' una mappa carattere -> colore.
 
-type Grid = string[]
-type Palette = Record<string, string>
+export type Grid = string[]
+export type Palette = Record<string, string>
 
 const BLANK = '................'
 
@@ -95,67 +95,148 @@ interface Accessory {
   palette: Palette
 }
 
+// Il main agent (slot 0) e' sempre il mago; i subagent ruotano tra gli altri eroi.
 export const ACCESSORIES: Accessory[] = [
   {
-    name: 'cappellino',
-    symbol: '^',
+    name: 'mago',
+    symbol: 'A',
     grid: grid({
-      1: '....CCCCCCCC....',
-      2: '...CCCCCCCCCC...',
-      3: '..DDDDDDDDDDDD..',
+      0: '.......HH.....OQ',
+      1: '......HHHH....OO',
+      2: '.....HHHYHH....T',
+      3: '..DDDDDDDDDDDD.T',
+      4: '...............T',
+      5: '...............T',
+      6: '...............T',
+      7: '...............T',
+      8: '...............T',
+      9: '...............T',
+      10: '...............T',
+      11: '...............T',
+      12: '...............T',
+      13: '...............T',
+      14: '...............T',
+      15: '...............T',
     }),
-    palette: { C: '#3B5BA9', D: '#2E4678' },
+    palette: { H: '#4B3F9E', D: '#352C73', Y: '#F4C430', T: '#8B5A2B', O: '#6FD3FF', Q: '#E8F8FF' },
   },
   {
-    name: 'sciarpa',
-    symbol: '~',
+    name: 'cavaliere',
+    symbol: 'T',
     grid: grid({
-      10: '..RRRRRRRRRRRR..',
-      11: '.............R..',
-      12: '.............R..',
-      13: '.............R..',
+      0: 'S......RR.......',
+      1: 'S.....HHHH......',
+      2: 'S..HHHHHHHHHH...',
+      3: 'S.HHHHHHHHHHHH..',
+      4: 'S.LLLLLLLLLLLL..',
+      5: 'S...............',
+      6: 'S...............',
+      7: 'S...............',
+      8: 'S...............',
+      9: 'S...............',
+      10: 'GGG.............',
+      11: 'T...............',
+      12: 'T...............',
+      13: 'T...............',
     }),
-    palette: { R: '#C0392B' },
+    palette: { H: '#8E9AAF', L: '#5C6678', R: '#C0392B', S: '#D6DCE5', G: '#F4C430', T: '#6B3E1F' },
   },
   {
-    name: 'pipa',
-    symbol: 'b',
-    grid: grid({
-      8: '.............PP.',
-      9: '..........TTTPP.',
-      10: '.............PP.',
-    }),
-    palette: { T: '#D8C3A5', P: '#6B3E1F' },
-  },
-  {
-    name: 'occhiali',
-    symbol: '8',
-    grid: grid({
-      4: '...GGGG..GGGG...',
-      5: '...G..GGGG..G...',
-      6: '...G..G..G..G...',
-      7: '...GGGG..GGGG...',
-    }),
-    palette: { G: '#222222' },
-  },
-  {
-    name: 'corona',
-    symbol: 'W',
-    grid: grid({
-      0: '...Y...Y...Y....',
-      1: '...OOOOOOOOOO...',
-    }),
-    palette: { Y: '#F4C430', O: '#B8860B' },
-  },
-  {
-    name: 'cravatta',
+    name: 'ladro',
     symbol: 'v',
     grid: grid({
-      10: '.......NN.......',
-      11: '......NNNN......',
-      12: '.......NN.......',
+      1: '.....NNNNNN.....',
+      2: '...NNNNNNNNNN...',
+      3: '..NNNNNNNNNNNN..',
+      4: '..NNN......NNN..',
+      5: '..NN........NN..',
+      6: '..NN........NN.S',
+      7: '..NN........NN.S',
+      8: '...............S',
+      9: '...............S',
+      10: '..............GG',
+      11: '...............T',
+      12: '...............T',
     }),
-    palette: { N: '#1F1F1F' },
+    palette: { N: '#3D2B56', S: '#D6DCE5', G: '#F4C430', T: '#6B3E1F' },
+  },
+  {
+    name: 're',
+    symbol: 'W',
+    grid: grid({
+      0: '...Y...YY...Y...',
+      1: '...YYYYRRYYYY...',
+      3: 'mM............Mm',
+      4: 'mM............Mm',
+      5: 'mM............Mm',
+      6: 'mM............Mm',
+      7: 'mM............Mm',
+      8: 'mM............Mm',
+      9: 'mM............Mm',
+      10: 'mM............Mm',
+      11: 'mM............Mm',
+      12: 'mM............Mm',
+      13: 'mM............Mm',
+    }),
+    palette: { Y: '#F4C430', R: '#C0392B', M: '#C0392B', m: '#8E2A20' },
+  },
+  {
+    name: 'arciere',
+    symbol: ')',
+    grid: grid({
+      0: '.............FF.',
+      1: '.....GGGGG..FF..',
+      2: '.B.GGGGGGGGGFF..',
+      3: '.BDDDDDDDDDDDD..',
+      4: 'B...............',
+      5: 'B...............',
+      6: 'B...............',
+      7: 'B...............',
+      8: 'B...............',
+      9: 'B...............',
+      10: 'B...............',
+      11: 'B...............',
+      12: '.B..............',
+      13: '.B..............',
+    }),
+    palette: { G: '#3E8E41', D: '#2B6330', F: '#E9E4D0', B: '#8B5A2B' },
+  },
+  {
+    name: 'chierico',
+    symbol: '+',
+    grid: grid({
+      0: '.......YY.......',
+      1: '......WWWW......',
+      2: '.....WWYYWW.....',
+      3: '..WWWWWWWWWWWW..',
+      7: 'SSSS............',
+      8: 'BYYB............',
+      9: 'YYYY............',
+      10: 'BYYB............',
+      11: '.SS.............',
+    }),
+    palette: { W: '#F5F0E1', Y: '#F4C430', S: '#D6DCE5', B: '#3B5BA9' },
+  },
+  {
+    name: 'barbaro',
+    symbol: 'Y',
+    grid: grid({
+      0: '.H............H.',
+      1: '.H..IIIIIIII..H.',
+      2: '.HIIIIIIIIIIIIH.',
+      3: '..IIIIIIIIIIII..',
+      4: '..DDDDDDDDDDDD.T',
+      5: '.............AAT',
+      6: '.............AAT',
+      7: '............AAAT',
+      8: '............AAAT',
+      9: '.............AAT',
+      10: '...............T',
+      11: '...............T',
+      12: '...............T',
+      13: '...............T',
+    }),
+    palette: { H: '#E9E4D0', I: '#8E9AAF', D: '#5C6678', A: '#B7BEC9', T: '#6B3E1F' },
   },
 ]
 
@@ -166,16 +247,17 @@ const ASCII_FACE: Record<Mood, string> = {
   idle: '(-_-)',
 }
 
-// Slot negativi o non finiti ricadono su un indice positivo nella lista.
+// Slot 0 (o non valido/negativo) e' il mago; i subagent ruotano sugli altri eroi.
 function accessoryFor(slot: number): Accessory {
   const n = ACCESSORIES.length
   const s = Number.isFinite(slot) ? Math.floor(slot) : 0
-  return ACCESSORIES[((s % n) + n) % n]!
+  if (s <= 0) return ACCESSORIES[0]!
+  return ACCESSORIES[1 + ((s - 1) % (n - 1))]!
 }
 
 // Converte le celle di un carattere in un unico path: una sotto-forma
 // rettangolare per ogni run orizzontale di pixel uguali.
-function toPath(g: Grid, ch: string): string {
+export function toPath(g: Grid, ch: string, px = PX): string {
   let d = ''
   for (let y = 0; y < g.length; y++) {
     const row = g[y] ?? ''
@@ -187,7 +269,7 @@ function toPath(g: Grid, ch: string): string {
       }
       let w = 1
       while (x + w < row.length && row[x + w] === ch) w++
-      d += `M${x * PX} ${y * PX}h${w * PX}v${PX}h${-w * PX}z`
+      d += `M${x * px} ${y * px}h${w * px}v${px}h${-w * px}z`
       x += w
     }
   }
@@ -267,7 +349,7 @@ export const CLAUDE_COLUMNS = 8
 export const CLAUDE_ROWS = 4
 const SUB_ROWS = CLAUDE_ROWS * 2
 
-type Pixels = (string | null)[][]
+export type Pixels = (string | null)[][]
 
 // I layer dipinti dopo sovrascrivono i precedenti: occhi, bocca e accessorio restano visibili sul corpo.
 function paint(canvas: Pixels, g: Grid, palette: Palette, dy: number) {
@@ -296,13 +378,14 @@ function bodyForFrame(mood: Mood, frame: number): Grid {
 type FaceCell = [number, number, string]
 const K = '#1a1a1a'
 const W = '#ffffff'
-const OPEN_EYES: FaceCell[] = [[2, 2, W], [3, 2, K], [2, 5, W], [3, 5, K]]
+// Occhi sulle righe 3-4 dei sub-pixel (righe 6-9 dello sprite): piu' in basso di elmi e cappucci, che arrivano alla riga 4.
+const OPEN_EYES: FaceCell[] = [[3, 2, W], [4, 2, K], [3, 5, W], [4, 5, K]]
 // Nel terminale niente bocca: solo gli occhi, in ogni stato.
 const FACE: Record<Mood, FaceCell[]> = {
   running: OPEN_EYES,
   idle: OPEN_EYES,
-  completed: [[2, 2, K], [2, 5, K]],
-  failed: [[2, 2, K], [3, 2, K], [2, 5, K], [3, 5, K]],
+  completed: [[3, 2, K], [3, 5, K]],
+  failed: [[3, 2, K], [4, 2, K], [3, 5, K], [4, 5, K]],
 }
 
 // Sprite composto come in claudeSvg, tutto ancorato alla stessa posizione.
@@ -322,7 +405,7 @@ export function claudePixels(slot: number, mood: Mood, frame: number): Pixels {
 const DEFAULT_COLOR = 0x01000000
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
-function base64(bytes: Uint8Array): string {
+export function base64(bytes: Uint8Array): string {
   let out = ''
   for (let i = 0; i < bytes.length; i += 3) {
     const a = bytes[i] ?? 0
@@ -341,11 +424,15 @@ const rgb = (hex: string | null | undefined): number =>
 // Celle di `RasterProps.cells`: due pixel per cella con i mezzi blocchi,
 // terne little-endian u32 [codePoint, foreground, background].
 export function claudeCells(slot: number, mood: Mood, frame: number): string {
-  const px = claudePixels(slot, mood, frame)
-  const words = new Uint32Array(CLAUDE_COLUMNS * CLAUDE_ROWS * 3)
+  return packCells(claudePixels(slot, mood, frame), CLAUDE_COLUMNS, CLAUDE_ROWS)
+}
+
+// Impacchetta una matrice di sub-pixel (2 per cella in verticale) nelle celle di un Raster.
+export function packCells(px: Pixels, columns: number, rows: number): string {
+  const words = new Uint32Array(columns * rows * 3)
   let i = 0
-  for (let r = 0; r < CLAUDE_ROWS; r++) {
-    for (let x = 0; x < CLAUDE_COLUMNS; x++) {
+  for (let r = 0; r < rows; r++) {
+    for (let x = 0; x < columns; x++) {
       const top = px[r * 2]?.[x] ?? null
       const bottom = px[r * 2 + 1]?.[x] ?? null
       let ch = 0x20

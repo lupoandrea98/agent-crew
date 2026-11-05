@@ -1,14 +1,16 @@
 # agent-crew
 
-Pannello laterale per Claude Code che mostra il lavoro in corso: un Claude animato per il main agent e per ogni subagent, con modello e barra di avanzamento, l'albero del worktree (richiudibile cliccando sul titolo) con i file toccati evidenziati, le card dei file modificati a lavoro concluso e, in fondo a destra, le barre di utilizzo del piano (finestra 5h e settimanale) con il conto alla rovescia del reset.
+Pannello laterale per Claude Code in stile videogioco fantasy 8-bit che mostra il lavoro in corso: un eroe animato per il main agent (il mago, con cappello e bastone magico) e per ogni subagent (cavaliere, ladro, re, arciere, chierico, barbaro), con modello e barra di avanzamento, l'albero del worktree (richiudibile cliccando sul titolo) con i file toccati evidenziati e le card dei file modificati a lavoro concluso.
 
-Nel terminale gli sprite sono disegnati a mezzi blocchi (con ripiego ASCII), sull'app desktop in SVG.
+Sopra la barra di scrittura c'è un HUD con tre barre: **Vita** (rossa, il contesto della sessione), **Mana** (blu, finestra di utilizzo delle 5 ore) e **Vigore** (verde, finestra settimanale), con il conto alla rovescia del reset. Le barre sono piene quando la risorsa è disponibile e si svuotano man mano che la usi. L'HUD si adatta alla larghezza senza mai andare a capo: prima spariscono le etichette, poi il conto alla rovescia, infine la fascia cede il posto.
+
+Nel terminale sprite e icone sono disegnati a mezzi blocchi (con ripiego ASCII), sull'app desktop in SVG.
 
 ## Uso
 
-Il pannello si apre da solo all'avvio della sessione. Per riaprirlo: `/crew`.
+Il pannello si apre da solo all'avvio della sessione. Per riaprirlo: `/crew`. L'HUD sopra il prompt è indipendente dal pannello e resta visibile anche se lo chiudi.
 
-Le barre di utilizzo compaiono solo con un abbonamento Claude (il motore non fornisce i limiti altrimenti) e dopo la prima risposta; fino ad allora si legge "n/d".
+Mana e Vigore compaiono solo con un abbonamento Claude (il motore non fornisce i limiti altrimenti) e dopo la prima risposta; fino ad allora si legge "n/d". Anche la Vita mostra "n/d" in una sessione nuova o appena compattata.
 
 ## Installazione
 

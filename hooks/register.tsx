@@ -4,7 +4,9 @@ import type { Register } from 'claude-code'
 import type { AgentRow, FileTouch } from '../types'
 import { baseName, cardHeight, cardSvg, colorFor } from './cards'
 import { CLAUDE_COLUMNS, CLAUDE_ROWS, asciiClaude, claudeCells, claudeSvg, pixelBar } from './claudes'
-import { colorForPct, formatReset, labelFor, pickLimits } from './usage'
+import { ICONS, ICON_COLUMNS, ICON_ROWS, iconCells, iconSvg } from './icons'
+import type { IconKind } from './icons'
+import { contextPct, formatReset, hudKindFor, hudLayout, labelFor, pickLimits, remainingPct } from './usage'
 import {
   IGNORED,
   applyPlan,
@@ -51,6 +53,7 @@ const files = atom({ plugin: 'agent-crew', key: 'files' } as const, [], { shape:
 const tree = atom({ plugin: 'agent-crew', key: 'tree' } as const, [], { shape: 'tree-1' })
 const cwdAtom = atom({ plugin: 'agent-crew', key: 'cwd' } as const, '', { shape: 'cwd-1' })
 const limits = atom({ plugin: 'agent-crew', key: 'limits' } as const, [], { shape: 'limits-1' })
+const context = atom({ plugin: 'agent-crew', key: 'context' } as const, { percent: null }, { shape: 'context-1' })
 const worktreeOpen = atom({ plugin: 'agent-crew', key: 'worktreeOpen' } as const, true, { shape: 'worktree-open-1' })
 
 const blank = (
@@ -147,7 +150,10 @@ export const register: Register = on => {
     })
     void $.session
       .usage()
-      .then(u => update($, limits, () => pickLimits(u.rateLimits)))
+      .then(async u => {
+        await update($, limits, () => pickLimits(u.rateLimits))
+        await update($, context, () => ({ percent: contextPct(u.context) }))
+      })
       .catch(() => undefined)
 
     return next(e)
@@ -155,6 +161,7 @@ export const register: Register = on => {
 
   on('session.measure', async ($, e, next) => {
     await update($, limits, () => pickLimits(e.rateLimits))
+    await update($, context, () => ({ percent: contextPct(e.context) }))
 
     return next(e)
   })
@@ -326,29 +333,6 @@ export const register: Register = on => {
     const edited = touched.filter(f => f.kind !== 'read')
     const nameOf = (id: string) => list.find(a => a.id === id)?.label ?? id
     const isOpen = await read($, worktreeOpen)
-    const usage = await read($, limits)
-
-    const usageBlock = (
-      <Box flexDirection="row" gap={2} alignSelf="flex-end">
-        {usage.length === 0 ? (
-          <Text dimColor>Utilizzo piano n/d</Text>
-        ) : (
-          usage.map(l => {
-            const pct = Math.round(l.percentUsed)
-            return (
-              <Box key={l.kind} flexDirection="column">
-                <Box flexDirection="row" gap={1}>
-                  <Text dimColor>{labelFor(l.kind)}</Text>
-                  <Text bold color={colorForPct(pct)}>{pct}%</Text>
-                </Box>
-                <Text color={colorForPct(pct)}>{pixelBar(pct, 10)}</Text>
-                <Text dimColor>{formatReset(l.resetsAt, now, l.kind)}</Text>
-              </Box>
-            )
-          })
-        )}
-      </Box>
-    )
 
     const agentRow = (a: AgentRow) => {
       const { pct, isEstimate } = progress(a)
@@ -394,9 +378,7 @@ export const register: Register = on => {
       props?: { bodyColumns?: number; placement?: string; scroll?: { bodyRows?: number } }
     }).props
     const cols = paneProps?.bodyColumns ?? 40
-    // Agganciato di lato il corpo riempie l'altezza del pannello, così lo spacer spinge l'utilizzo in fondo.
-    // Sul desktop le righe diventano pixel e l'albero sforerebbe la finestra: lì niente altezza minima.
-    const minHeight = isTerminal && paneProps?.placement === 'dock' ? paneProps.scroll?.bodyRows : undefined
+
     const cardWidth = Math.max(180, cols * 8 - 16)
     const touchLabel = (f: FileTouch) =>
       f.kind === 'delete' ? 'eliminato' : f.kind === 'write' ? 'creato' : 'modificato'
@@ -463,7 +445,7 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" gap={1} flexGrow={1} minHeight={minHeight}>
+      <Box flexDirection="column" gap={1} flexGrow={1}>
         {list.filter(a => a.status !== 'idle').map(agentRow)}
         {worktreeBox}
         {finished && edited.length > 0 && (
@@ -473,8 +455,79 @@ export const register: Register = on => {
           <Text dimColor>Lavoro concluso: nessun file modificato.</Text>
         )}
         {finished && edited.map(fileCard)}
-        <Box flexGrow={1} />
-        {usageBlock}
+      </Box>
+    )
+  })
+
+  // HUD da videogioco nella fascia sopra il prompt: Vita (contesto), Mana (5h), Vigore (settimanale).
+  // Barre piene = risorsa disponibile. Ogni blocco ha due righe (testo, barra): le tre barre stanno alla stessa altezza.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+
+    const ui = $.ui.resolve(e) as Record<string, any>
+    const { Box, Text } = ui
+    const isTerminal = (e as unknown as { surface?: string }).surface === 'terminal'
+    const Svg = isTerminal ? undefined : ui.Svg
+    const Raster = isTerminal ? ui.Raster : undefined
+    if (isTerminal) terminalSeen = true
+    const now = await $.clock.now()
+    const usage = await read($, limits)
+    const ctxUsed = (await read($, context)).percent
+
+    const hudIcon = (kind: IconKind) =>
+      Svg ? (
+        <Svg key={`icon-${kind}`} source={iconSvg(kind)} alt={kind} width={16} height={16} />
+      ) : Raster ? (
+        <Raster key={`icon-${kind}`} columns={ICON_COLUMNS} rows={ICON_ROWS} cells={iconCells(kind)} />
+      ) : (
+        <Text color={ICONS[kind].color}>{ICONS[kind].glyph}</Text>
+      )
+    const lifePct = ctxUsed === null ? null : remainingPct(ctxUsed)
+
+    // Blocchi Mana/Vigore presenti, con le stringhe che il layout deve misurare.
+    const sideBlocks = usage.flatMap(l => {
+      const kind = hudKindFor(l.kind)
+      if (!kind) return []
+      const left = remainingPct(l.percentUsed)
+      return [{ l, kind, left, label: labelFor(l.kind), pct: `${left}%`, reset: formatReset(l.resetsAt, now, l.kind) }]
+    })
+    // Il layout sceglie etichette, countdown e larghezze perche' tutto stia in una riga: se non entra, la fascia cede.
+    const lay = hudLayout(e.props.bodyColumns, sideBlocks)
+    if (!lay.show) return next(e)
+
+    return (
+      <Box flexDirection="row" gap={2} alignItems="flex-start" flexWrap="nowrap" paddingTop={isTerminal ? 1 : 0}>
+        <Box flexDirection="row" gap={1} flexShrink={0}>
+          {hudIcon('life')}
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={1}>
+              {lay.showLabels && <Text dimColor wrap="truncate-end">Vita</Text>}
+              <Text bold color={ICONS.life.color} wrap="truncate-end">
+                {lifePct === null ? 'n/d' : `${lifePct}%`}
+              </Text>
+            </Box>
+            <Text color={ICONS.life.color} wrap="truncate-end">{pixelBar(lifePct, lay.lifeBar)}</Text>
+          </Box>
+        </Box>
+        {sideBlocks.length === 0 ? (
+          <Text dimColor wrap="truncate-end">Mana e Vigore n/d</Text>
+        ) : (
+          sideBlocks.map(({ l, kind, left, label, pct, reset }, i) => {
+            return (
+              <Box key={l.kind} flexDirection="row" gap={1} flexShrink={0}>
+                {hudIcon(kind)}
+                <Box flexDirection="column">
+                  <Box flexDirection="row" gap={1}>
+                    {lay.showLabels && <Text dimColor wrap="truncate-end">{label}</Text>}
+                    <Text bold color={ICONS[kind].color} wrap="truncate-end">{pct}</Text>
+                    {lay.showReset && <Text dimColor wrap="truncate-end">{reset}</Text>}
+                  </Box>
+                  <Text color={ICONS[kind].color} wrap="truncate-end">{pixelBar(left, lay.sideBars[i] ?? 8)}</Text>
+                </Box>
+              </Box>
+            )
+          })
+        )}
       </Box>
     )
   })
