@@ -334,11 +334,16 @@ export function asciiClaude(slot: number, mood: Mood, frame = 0): string[] {
 }
 
 // Barra a blocchi: '█' pieni e '░' vuoti. pct null => 0 pieni.
-export function pixelBar(pct: number | null, width = 16): string {
+export function pixelBarParts(pct: number | null, width = 16): { filled: string; empty: string } {
   const w = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 16
   const p = pct === null || !Number.isFinite(pct) ? 0 : Math.min(100, Math.max(0, pct))
   const filled = Math.round((p / 100) * w)
-  return '█'.repeat(filled) + '░'.repeat(w - filled)
+  return { filled: '█'.repeat(filled), empty: '░'.repeat(w - filled) }
+}
+
+export function pixelBar(pct: number | null, width = 16): string {
+  const { filled, empty } = pixelBarParts(pct, width)
+  return filled + empty
 }
 
 // --- Rendering a celle per il terminale (Raster) ---

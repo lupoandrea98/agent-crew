@@ -3,10 +3,20 @@ import type { Register } from 'claude-code'
 
 import type { AgentRow, FileTouch } from '../types'
 import { baseName, cardHeight, cardSvg, colorFor } from './cards'
-import { CLAUDE_COLUMNS, CLAUDE_ROWS, asciiClaude, claudeCells, claudeSvg, pixelBar } from './claudes'
+import { CLAUDE_COLUMNS, CLAUDE_ROWS, asciiClaude, claudeCells, claudeSvg, pixelBar, pixelBarParts } from './claudes'
 import { ICONS, ICON_COLUMNS, ICON_ROWS, iconCells, iconSvg } from './icons'
 import type { IconKind } from './icons'
-import { contextPct, formatReset, hudKindFor, hudLayout, labelFor, pickLimits, remainingPct } from './usage'
+import {
+  contextPct,
+  formatReset,
+  hudKindFor,
+  hudLayout,
+  labelFor,
+  lifeColor,
+  pickLimits,
+  remainingPct,
+  sideColor,
+} from './usage'
 import {
   IGNORED,
   applyPlan,
@@ -124,6 +134,29 @@ async function isGone($: any, cwd: string, path: string): Promise<boolean> {
   }
 }
 
+/** Rilegge l'utilizzo e aggiorna i dati solo se la lettura ne contiene: una lettura vuota non cancella quelli noti. */
+async function refreshUsage($: any): Promise<boolean> {
+  try {
+    const u = await $.session.usage()
+    const lim = pickLimits(u.rateLimits ?? [])
+    const pct = contextPct(u.context)
+    if (lim.length > 0) await update($, limits, () => lim)
+    if (pct !== null) await update($, context, () => ({ percent: pct }))
+    if (lim.length > 0 || pct !== null) $.ui.invalidate('ui.render')
+    return lim.length > 0 && pct !== null
+  } catch {
+    return false
+  }
+}
+
+// Subito dopo l'avvio la sessione puo' non essere ancora legata o non avere una lettura: si riprova a distanza.
+const USAGE_RETRY_MS = [500, 2000, 5000]
+let usageRetries: Array<{ cancel: () => void }> = []
+const cancelUsageRetries = () => {
+  usageRetries.forEach(t => t.cancel())
+  usageRetries = []
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -147,14 +180,18 @@ export const register: Register = on => {
     usageTicker?.cancel()
     usageTicker = $.clock.every(60_000, () => {
       $.ui.invalidate('ui.render')
+      void refreshUsage($)
     })
-    void $.session
-      .usage()
-      .then(async u => {
-        await update($, limits, () => pickLimits(u.rateLimits))
-        await update($, context, () => ({ percent: contextPct(u.context) }))
-      })
-      .catch(() => undefined)
+    // Lettura iniziale, con qualche ripetizione finche' non arriva un dato completo.
+    cancelUsageRetries()
+    void refreshUsage($).then(complete => {
+      if (complete) return
+      usageRetries = USAGE_RETRY_MS.map(ms =>
+        $.clock.after(ms, () => {
+          void refreshUsage($)
+        }),
+      )
+    })
 
     return next(e)
   })
@@ -171,6 +208,7 @@ export const register: Register = on => {
     ticker = undefined
     usageTicker?.cancel()
     usageTicker = undefined
+    cancelUsageRetries()
 
     return next(e)
   })
@@ -222,6 +260,7 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     await update($, agents, patch(e.agentId ?? MAIN, () => ({ status: 'running' })))
+    void refreshUsage($)
 
     return next(e)
   })
@@ -383,22 +422,26 @@ export const register: Register = on => {
     const touchLabel = (f: FileTouch) =>
       f.kind === 'delete' ? 'eliminato' : f.kind === 'write' ? 'creato' : 'modificato'
 
+    const treeRow = (r: ReturnType<typeof treeRows>[number]) => {
+      const t = r.touch
+      const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : t.kind === 'delete' ? '✗ ' : '✓ '
+      const color = t ? colorOf(list, t.agentIds[t.agentIds.length - 1] ?? MAIN) : undefined
+      return (
+        <Text key={r.path} color={color} bold={t?.status === 'active'} dimColor={!t}>
+          {'  '.repeat(r.depth)}{mark}{r.name}{r.isDir ? '/' : ''}
+        </Text>
+      )
+    }
+    // Card chiusa mentre gli agenti lavorano: niente albero intero, solo i file che stanno toccando.
+    const compactView = !isOpen && !finished
+
     const worktreeBox = (
       <Box flexDirection="column" borderStyle="round" paddingX={1}>
         <Button key="worktree-toggle" plain onPress={() => void update($, worktreeOpen, o => !o)}>
           <Text bold>{isOpen ? '▾' : '▸'} Worktree</Text>
         </Button>
-        {isOpen &&
-          treeRows(paths, touched).map(r => {
-            const t = r.touch
-            const mark = !t ? '  ' : t.status === 'active' ? '▶ ' : t.kind === 'delete' ? '✗ ' : '✓ '
-            const color = t ? colorOf(list, t.agentIds[t.agentIds.length - 1] ?? MAIN) : undefined
-            return (
-              <Text key={r.path} color={color} bold={t?.status === 'active'} dimColor={!t}>
-                {'  '.repeat(r.depth)}{mark}{r.name}{r.isDir ? '/' : ''}
-              </Text>
-            )
-          })}
+        {isOpen && treeRows(paths, touched).map(treeRow)}
+        {compactView && treeRows([], touched).map(treeRow)}
       </Box>
     )
 
@@ -483,6 +526,17 @@ export const register: Register = on => {
         <Text color={ICONS[kind].color}>{ICONS[kind].glyph}</Text>
       )
     const lifePct = ctxUsed === null ? null : remainingPct(ctxUsed)
+    const lifeAlert = lifeColor(lifePct, ICONS.life.color)
+    // Il colore d'allerta tinge solo la parte piena; quella vuota resta del colore base.
+    const hudBar = (pct: number | null, width: number, alert: string, base: string) => {
+      const { filled, empty } = pixelBarParts(pct, width)
+      return (
+        <Text wrap="truncate-end">
+          <Text color={alert} wrap="truncate-end">{filled}</Text>
+          <Text color={base} wrap="truncate-end">{empty}</Text>
+        </Text>
+      )
+    }
 
     // Blocchi Mana/Vigore presenti, con le stringhe che il layout deve misurare.
     const sideBlocks = usage.flatMap(l => {
@@ -502,27 +556,28 @@ export const register: Register = on => {
           <Box flexDirection="column">
             <Box flexDirection="row" gap={1}>
               {lay.showLabels && <Text dimColor wrap="truncate-end">Vita</Text>}
-              <Text bold color={ICONS.life.color} wrap="truncate-end">
+              <Text bold color={lifeAlert} wrap="truncate-end">
                 {lifePct === null ? 'n/d' : `${lifePct}%`}
               </Text>
             </Box>
-            <Text color={ICONS.life.color} wrap="truncate-end">{pixelBar(lifePct, lay.lifeBar)}</Text>
+            {hudBar(lifePct, lay.lifeBar, lifeAlert, ICONS.life.color)}
           </Box>
         </Box>
         {sideBlocks.length === 0 ? (
           <Text dimColor wrap="truncate-end">Mana e Vigore n/d</Text>
         ) : (
           sideBlocks.map(({ l, kind, left, label, pct, reset }, i) => {
+            const alert = sideColor(left, ICONS[kind].color)
             return (
               <Box key={l.kind} flexDirection="row" gap={1} flexShrink={0}>
                 {hudIcon(kind)}
                 <Box flexDirection="column">
                   <Box flexDirection="row" gap={1}>
                     {lay.showLabels && <Text dimColor wrap="truncate-end">{label}</Text>}
-                    <Text bold color={ICONS[kind].color} wrap="truncate-end">{pct}</Text>
+                    <Text bold color={alert} wrap="truncate-end">{pct}</Text>
                     {lay.showReset && <Text dimColor wrap="truncate-end">{reset}</Text>}
                   </Box>
-                  <Text color={ICONS[kind].color} wrap="truncate-end">{pixelBar(left, lay.sideBars[i] ?? 8)}</Text>
+                  {hudBar(left, lay.sideBars[i] ?? 8, alert, ICONS[kind].color)}
                 </Box>
               </Box>
             )

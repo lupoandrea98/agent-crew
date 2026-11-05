@@ -19,6 +19,19 @@ export const hudKindFor = (kind: string): 'mana' | 'stamina' | undefined =>
 export const colorForPct = (pct: number): 'green' | 'yellow' | 'red' =>
   pct >= 90 ? 'red' : pct >= 70 ? 'yellow' : 'green'
 
+// Soglie d'allerta sulla percentuale RESTANTE.
+export const LIFE_YELLOW = 55
+export const SIDE_YELLOW = 50
+export const SIDE_RED = 20
+
+/** Vita: gialla sotto il 55% (invito a fare /compact o a ripartire), altrimenti il colore base. */
+export const lifeColor = (leftPct: number | null, base: string): string =>
+  leftPct !== null && leftPct < LIFE_YELLOW ? 'yellow' : base
+
+/** Mana e Vigore: gialli sotto il 50%, rossi sotto il 20%, altrimenti il colore base. */
+export const sideColor = (leftPct: number, base: string): string =>
+  leftPct < SIDE_RED ? 'red' : leftPct < SIDE_YELLOW ? 'yellow' : base
+
 /** Quanto resta di una risorsa (0-100) dato quanto e' stato usato. */
 export const remainingPct = (usedPct: number): number =>
   Number.isFinite(usedPct) ? Math.min(100, Math.max(0, Math.round(100 - usedPct))) : 0
@@ -35,7 +48,6 @@ const HUD_GAP = 2 // spazio tra i blocchi
 const HUD_PCT = 4 // "100%" (la Vita, che non ha il testo reale nei lati)
 const HUD_LIFE_LABEL = 'Vita'
 const HUD_MAX_LIFE_BAR = 40
-const HUD_SIDE_BAR_MIN = 8
 const HUD_NO_LIMITS = 'Mana e Vigore n/d'.length
 
 export type HudLayout = {
@@ -70,20 +82,25 @@ export const hudLayout = (
     const lines = sides.map(
       s => (step.labels ? s.label.length + 1 : 0) + s.pct.length + (step.reset ? 1 + s.reset.length : 0),
     )
-    const sideBars = lines.map(line => (step.reset ? line : Math.max(line, HUD_SIDE_BAR_MIN)))
-    const sideTotal =
-      sides.length === 0
-        ? HUD_GAP + HUD_NO_LIMITS
-        : sideBars.reduce((sum, bar, i) => sum + HUD_GAP + HUD_ICON + Math.max(bar, lines[i]!), 0)
     const lifeLine = (step.labels ? HUD_LIFE_LABEL.length + 1 : 0) + HUD_PCT
-    const room = cols - sideTotal - HUD_ICON
-    if (room >= Math.max(lifeLine, step.lifeMin)) {
+    if (sides.length === 0) {
+      const room = cols - (HUD_GAP + HUD_NO_LIMITS) - HUD_ICON
+      if (room >= Math.max(lifeLine, step.lifeMin)) {
+        return { show: true, showLabels: step.labels, showReset: step.reset, lifeBar: Math.min(HUD_MAX_LIFE_BAR, room), sideBars: [] }
+      }
+      continue
+    }
+    // Tutte le barre hanno la stessa larghezza e si dividono lo spazio libero; mai piu' strette del testo che hanno sopra.
+    const blocks = sides.length + 1
+    const minBar = Math.max(lifeLine, step.lifeMin, ...lines)
+    const bar = Math.min(HUD_MAX_LIFE_BAR, Math.floor((cols - blocks * HUD_ICON - sides.length * HUD_GAP) / blocks))
+    if (bar >= minBar) {
       return {
         show: true,
         showLabels: step.labels,
         showReset: step.reset,
-        lifeBar: Math.min(HUD_MAX_LIFE_BAR, room),
-        sideBars,
+        lifeBar: bar,
+        sideBars: sides.map(() => bar),
       }
     }
   }

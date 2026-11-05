@@ -16,6 +16,15 @@ const PANE = {
   },
 } as const
 
+// Ogni barra HUD e' un Text con dentro due Text (parte piena e vuota), tutte e tre larghe uguali:
+// le barre intere sono i blocchi di testo piu' lunghi, le loro parti sono piu' corte.
+const fullBars = async (m: any): Promise<any[]> => {
+  const found: any[] = (await m.findAll({ type: 'Text', text: /^[█░]+$/ })).filter((t: any) => String(t.props.text ?? t.text ?? '') !== '')
+  const len = (t: any) => String(t.props.text ?? t.text ?? '').length
+  const max = Math.max(0, ...found.map(len))
+  return max < 6 ? [] : found.filter(t => len(t) === max)
+}
+
 // Un task con un subagent che crea, sovrascrive ed elimina file; poi il pannello su entrambe le superfici.
 test('il pannello disegna agenti, worktree e card su terminale e desktop', async ($, on) => {
   // Nulla sta sotto la mod: questi hook fanno la parte dell'engine.
@@ -45,6 +54,7 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   })
   on('clock.every', () => ({ value: undefined }) as any)
   on('clock.now', () => ({ value: 1_000_000 }) as any)
+  on('prompt.submit', (_, e: any) => e)
   on('turn.start', (_, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', (_, e: any) => ({ text: e.answer ?? '' }) as any)
 
@@ -98,6 +108,19 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   expect(await term.find({ type: 'Text', text: /✗ gone\.ts/ })).toBeDefined()
   await term.unmount()
 
+  // Nuova richiesta con la card chiusa a mano mentre gli agenti lavorano: solo i file toccati, non l'intero albero.
+  await ev.prompt.submit({ text: 'altro lavoro' })
+  await ev.turn.start({ turnId: 'm2' })
+  await ev.tool.call({ tool: 'Write', file_path: '/w/fresh.ts', content: 'z' })
+  const compact = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await compact.press({ key: 'worktree-toggle' }) // aperta -> chiusa
+  expect(await compact.find({ type: 'Text', text: /fresh\.ts/ })).toBeDefined()
+  expect(await compact.find({ type: 'Text', text: /old\.ts/ })).toBeUndefined()
+  await compact.press({ key: 'worktree-toggle' }) // riaperta: albero completo
+  expect(await compact.find({ type: 'Text', text: /old\.ts/ })).toBeDefined()
+  await compact.unmount()
+  await ev.turn.complete({ turnId: 'm2', answer: '' })
+
   // HUD sopra il prompt: Vita 75% (contesto 25% usato), Mana 60%, Vigore 90%.
   const band = {
     plugin: 'agent-crew',
@@ -125,8 +148,7 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   expect(await hudTerm.find({ type: 'Text', text: /60%/ })).toBeDefined()
   expect(await hudTerm.find({ type: 'Text', text: /90%/ })).toBeDefined()
   // Le tre barre hanno la stessa lunghezza di riga di partenza: tutte seconda riga del loro blocco.
-  const bars = await hudTerm.findAll({ type: 'Text', text: /[█░]{6,}/ })
-  expect(bars.length).toBe(3)
+  expect((await fullBars(hudTerm)).length).toBe(3)
   await hudTerm.unmount()
 
   const hudDesk = await $.ui.mount({ ...band, surface: 'desktop' } as any)
@@ -143,18 +165,17 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
       (await m.find({ type: 'Text', text: /^Mana$/ })) !== undefined,
       (await m.find({ type: 'Text', text: /^Vigore$/ })) !== undefined,
     ]
-    const bars = await m.findAll({ type: 'Text', text: /[█░]{6,}/ })
+    const bars = await fullBars(m)
     const hudTexts = (await m.findAll({ type: 'Text' })).filter(t => t.props.wrap !== undefined || bars.length > 0)
     const allTruncate = hudTexts.every(t => t.props.wrap === 'truncate-end')
     await m.unmount()
     return { present, bars: bars.length, allTruncate }
   }
   expect(await labelsAt(80)).toMatchObject({ present: [true, true, true], bars: 3, allTruncate: true })
-  // A 80 colonne le barre di Mana e Vigore sono larghe quanto la riga sopra ("Mana 60% 1h 43m" = 15, "Vigore 90% 2g 23h" = 17).
+  // A 80 colonne le tre barre sono uguali: (80 - 3*5 - 2*2) / 3 = 20.
   const wideHud = await $.ui.mount({ ...band, props: { ...band.props, bodyColumns: 80 }, surface: 'terminal' } as any)
   expect(await wideHud.find({ type: 'Text', text: /^Mana$/ })).toBeDefined()
-  expect(await wideHud.find({ type: 'Text', text: /^[█░]{15}$/ })).toBeDefined()
-  expect(await wideHud.find({ type: 'Text', text: /^[█░]{17}$/ })).toBeDefined()
+  expect((await wideHud.findAll({ type: 'Text', text: /^[█░]{20}$/ })).length).toBe(3)
   await wideHud.unmount()
   expect(await labelsAt(55)).toMatchObject({ present: [false, false, false], bars: 3, allTruncate: true })
   expect(await labelsAt(45)).toMatchObject({ present: [false, false, false], bars: 3, allTruncate: true })

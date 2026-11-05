@@ -2,7 +2,27 @@ import { expect, test } from 'claude-code/testing'
 
 import { ACCESSORIES, claudePixels, claudeSvg } from './claudes'
 import { ICONS, iconCells } from './icons'
-import { contextPct, hudKindFor, hudLayout, labelFor, remainingPct } from './usage'
+import { contextPct, hudKindFor, hudLayout, labelFor, lifeColor, remainingPct, sideColor } from './usage'
+import { pixelBarParts } from './claudes'
+
+test('colori d\'allerta: Vita gialla sotto il 55%, Mana/Vigore gialli sotto il 50% e rossi sotto il 20%', async () => {
+  expect(lifeColor(100, 'red')).toBe('red')
+  expect(lifeColor(55, 'red')).toBe('red')
+  expect(lifeColor(54, 'red')).toBe('yellow')
+  expect(lifeColor(0, 'red')).toBe('yellow')
+  expect(lifeColor(null, 'red')).toBe('red')
+  expect(sideColor(100, 'blue')).toBe('blue')
+  expect(sideColor(50, 'blue')).toBe('blue')
+  expect(sideColor(49, 'green')).toBe('yellow')
+  expect(sideColor(20, 'green')).toBe('yellow')
+  expect(sideColor(19, 'green')).toBe('red')
+  expect(sideColor(0, 'blue')).toBe('red')
+})
+
+test('pixelBarParts separa la parte piena da quella vuota', async () => {
+  expect(pixelBarParts(50, 10)).toEqual({ filled: '█████', empty: '░░░░░' })
+  expect(pixelBarParts(null, 4)).toEqual({ filled: '', empty: '░░░░' })
+})
 
 test('remainingPct e contextPct gestiscono valori limite e assenti', async () => {
   expect(remainingPct(0)).toBe(100)
@@ -61,14 +81,15 @@ test('hudLayout degrada per larghezza senza mai rompere la riga', async () => {
     { label: 'Mana', pct: '60%', reset: '1h 43m' },
     { label: 'Vigore', pct: '90%', reset: '3g 23h' },
   ]
-  // Completo: la barra di ogni blocco e' larga quanto la riga sopra (etichetta + pct + countdown).
+  // Completo: le tre barre sono uguali e si dividono lo spazio libero (max 40).
   const wide = hudLayout(100, sides)
-  expect(wide).toMatchObject({ show: true, showLabels: true, showReset: true, sideBars: [15, 17] })
-  expect(wide.lifeBar).toBeLessThanOrEqual(40)
-  expect(hudLayout(80, sides)).toMatchObject({ show: true, showLabels: true, showReset: true })
+  expect(wide).toMatchObject({ show: true, showLabels: true, showReset: true, lifeBar: 27, sideBars: [27, 27] })
+  expect(hudLayout(200, sides)).toMatchObject({ lifeBar: 40, sideBars: [40, 40] })
+  // 80 colonne: (80 - 3 icone da 5 - 2 spazi da 2) / 3 = 20 per barra.
+  expect(hudLayout(80, sides)).toMatchObject({ show: true, showLabels: true, showReset: true, lifeBar: 20, sideBars: [20, 20] })
   // Prima spariscono le etichette (tutte), poi il countdown, poi la fascia.
-  expect(hudLayout(55, sides)).toMatchObject({ show: true, showLabels: false, showReset: true, sideBars: [10, 10] })
-  expect(hudLayout(45, sides)).toMatchObject({ show: true, showLabels: false, showReset: false, sideBars: [8, 8] })
+  expect(hudLayout(55, sides)).toMatchObject({ show: true, showLabels: false, showReset: true, lifeBar: 12, sideBars: [12, 12] })
+  expect(hudLayout(45, sides)).toMatchObject({ show: true, showLabels: false, showReset: false, lifeBar: 8, sideBars: [8, 8] })
   expect(hudLayout(20, sides).show).toBe(false)
 
   let labelsGone = false
@@ -88,7 +109,8 @@ test('hudLayout degrada per larghezza senza mai rompere la riga', async () => {
     if (resetGone) expect(lay.showReset).toBe(false)
     expect(lay.lifeBar).toBeGreaterThanOrEqual(6)
     expect(lay.sideBars.length).toBe(2)
-    for (const bar of lay.sideBars) expect(bar).toBeGreaterThanOrEqual(8)
+    // Le tre barre sono sempre uguali.
+    for (const bar of lay.sideBars) expect(bar).toBe(lay.lifeBar)
   }
   // Senza limiti noti c'e' solo il testo "Mana e Vigore n/d".
   expect(hudLayout(60, []).show).toBe(true)
