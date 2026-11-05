@@ -276,7 +276,8 @@ export function toPath(g: Grid, ch: string, px = PX): string {
   return d
 }
 
-function layer(g: Grid, palette: Palette): string {
+/** Strato SVG: un path per ogni colore della palette. */
+export function layer(g: Grid, palette: Palette): string {
   let out = ''
   for (const ch of Object.keys(palette)) {
     const d = toPath(g, ch)
@@ -286,16 +287,33 @@ function layer(g: Grid, palette: Palette): string {
 }
 
 // Lo SVG dipende solo da accessorio e mood: si calcola una volta sola.
-const svgCache = new Map<string, string>()
+/** Svg quadrato di lato `size` (viewBox e dimensioni coincidono), pixel nitidi. */
+export function pixelSvg(size: number, body: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" shape-rendering="crispEdges">` +
+    body +
+    '</svg>'
+  )
+}
+
+/** Memoizza una funzione pura a un argomento: il risultato si calcola una volta per chiave. */
+export function memo<K, V>(fn: (k: K) => V): (k: K) => V {
+  const cache = new Map<K, V>()
+  return k => {
+    if (cache.has(k)) return cache.get(k) as V
+    const v = fn(k)
+    cache.set(k, v)
+    return v
+  }
+}
+
+const svgFor = memo((key: string): string => {
+  const [i, mood] = key.split(':') as [string, Mood]
+  return renderSvg(ACCESSORIES[Number(i)] as Accessory, mood)
+})
 
 export function claudeSvg(slot: number, mood: Mood): string {
-  const acc = accessoryFor(slot)
-  const key = `${ACCESSORIES.indexOf(acc)}:${mood}`
-  const cached = svgCache.get(key)
-  if (cached !== undefined) return cached
-  const svg = renderSvg(acc, mood)
-  svgCache.set(key, svg)
-  return svg
+  return svgFor(`${ACCESSORIES.indexOf(accessoryFor(slot))}:${mood}`)
 }
 
 function renderSvg(acc: Accessory, mood: Mood): string {
@@ -310,20 +328,13 @@ function renderSvg(acc: Accessory, mood: Mood): string {
 
   const accessory = layer(acc.grid, acc.palette)
 
-  let motion = ''
-  if (mood === 'running') {
-    motion =
-      '<animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" calcMode="discrete" dur="0.5s" repeatCount="indefinite"/>'
-  } else if (mood === 'idle') {
-    motion =
-      '<animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" calcMode="discrete" dur="2s" repeatCount="indefinite"/>'
-  }
+  // Rimbalzo: veloce in running, lento in idle, assente negli altri stati.
+  const dur = mood === 'running' ? '0.5s' : mood === 'idle' ? '2s' : null
+  const motion = dur
+    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" calcMode="discrete" dur="${dur}" repeatCount="indefinite"/>`
+    : ''
 
-  return (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">' +
-    `<g>${motion}${body}${eyes}${mouth}${accessory}</g>` +
-    '</svg>'
-  )
+  return pixelSvg(64, `<g>${motion}${body}${eyes}${mouth}${accessory}</g>`)
 }
 
 export function asciiClaude(slot: number, mood: Mood, frame = 0): string[] {
@@ -381,8 +392,8 @@ function bodyForFrame(mood: Mood, frame: number): Grid {
 // Facce native a bassa risoluzione: coordinate [riga, colonna] già in sub-pixel.
 // Gli archi del 16x16 (EYES_HAPPY, MOUTH_HAPPY) dimezzati collassano e sembrano più occhi e più bocche.
 type FaceCell = [number, number, string]
-const K = '#1a1a1a'
-const W = '#ffffff'
+const K = INK.K as string
+const W = INK.W as string
 // Occhi sulle righe 3-4 dei sub-pixel (righe 6-9 dello sprite): piu' in basso di elmi e cappucci, che arrivano alla riga 4.
 const OPEN_EYES: FaceCell[] = [[3, 2, W], [4, 2, K], [3, 5, W], [4, 5, K]]
 // Nel terminale niente bocca: solo gli occhi, in ogni stato.
@@ -410,7 +421,7 @@ export function claudePixels(slot: number, mood: Mood, frame: number): Pixels {
 const DEFAULT_COLOR = 0x01000000
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
-export function base64(bytes: Uint8Array): string {
+function base64(bytes: Uint8Array): string {
   let out = ''
   for (let i = 0; i < bytes.length; i += 3) {
     const a = bytes[i] ?? 0

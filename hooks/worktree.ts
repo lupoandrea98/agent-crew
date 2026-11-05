@@ -2,9 +2,19 @@ import type { AgentRow, FileTouch } from '../types'
 
 export const IGNORED = new Set(['node_modules', '.git', 'dist', '.next', '.DS_Store'])
 
+const slashes = (s: string): string => s.replace(/\\/g, '/')
+
+/** Radice del cwd con `/` come separatore e senza slash finale. */
+const rootOf = (cwd: string): string => slashes(cwd).replace(/\/+$/, '')
+
+/** True se `p` (già con `/`) è la radice o sta dentro di essa. */
+const isInside = (root: string, p: string): boolean => root !== '' && (p === root || p.startsWith(root + '/'))
+
 export const relPath = (cwd: string, p: string): string => {
-  if (cwd && p.startsWith(cwd)) return p.slice(cwd.length).replace(/^\/+/, '')
-  return p.replace(/^\/+/, '')
+  const q = slashes(p)
+  const root = rootOf(cwd)
+  if (isInside(root, q)) return q.slice(root.length).replace(/^\/+/, '')
+  return q.replace(/^\/+/, '')
 }
 
 const rank = { read: 0, edit: 1, write: 2, delete: 3 } as const
@@ -24,6 +34,14 @@ export const deletedPaths = (command: string): string[] => {
     }
   }
   return out
+}
+
+/** Percorsi (relativi al cwd) eliminati da un comando shell; scarta quelli assoluti fuori dal cwd. */
+export const deletedTargets = (cwd: string, command: string): string[] => {
+  const root = rootOf(cwd)
+  return deletedPaths(command)
+    .map(p => (/^([A-Za-z]:)?[\\/]/.test(p) && !isInside(root, slashes(p)) ? '' : relPath(cwd, p).replace(/^(\.\/)+/, '')))
+    .filter(p => p !== '' && !p.startsWith('..') && !p.endsWith('/'))
 }
 
 /** Aggiunge o fonde un accesso a un file; il tipo più "forte" vince. */
@@ -97,12 +115,12 @@ export const fileKind = (tool: string, existed: boolean): FileTouch['kind'] =>
   tool === 'Edit' || tool === 'NotebookEdit' || existed ? 'edit' : tool === 'Write' ? 'write' : 'read'
 
 /** Percentuale stimata dai tool call: sale e si ferma prima del 90%. */
-export const estimate = (calls: number): number =>
+const estimate = (calls: number): number =>
   Math.min(90, Math.round(100 * (1 - Math.pow(0.85, calls))))
 
 export const progress = (a: AgentRow): { pct: number | null; isEstimate: boolean } => {
   if (a.status === 'completed') return { pct: 100, isEstimate: false }
-  if (a.source === 'plan' && a.total > 0) {
+  if (a.total > 0) {
     return { pct: Math.round((a.done / a.total) * 100), isEstimate: false }
   }
   if (a.calls > 0) return { pct: estimate(a.calls), isEstimate: true }

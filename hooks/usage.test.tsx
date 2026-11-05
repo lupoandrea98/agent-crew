@@ -1,22 +1,44 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ACCESSORIES, claudePixels, claudeSvg } from './claudes'
+import { ACCESSORIES, claudePixels, claudeSvg, pixelBarParts } from './claudes'
 import { ICONS, iconCells } from './icons'
-import { contextPct, hudKindFor, hudLayout, labelFor, lifeColor, remainingPct, sideColor } from './usage'
-import { pixelBarParts } from './claudes'
+import { contextColor, contextPct, hudBlocks, hudLayout, limitColor, remainingPct } from './usage'
 
-test('colori d\'allerta: Vita gialla sotto il 55%, Mana/Vigore gialli sotto il 50% e rossi sotto il 20%', async () => {
-  expect(lifeColor(100, 'red')).toBe('red')
-  expect(lifeColor(55, 'red')).toBe('red')
-  expect(lifeColor(54, 'red')).toBe('yellow')
-  expect(lifeColor(0, 'red')).toBe('yellow')
-  expect(lifeColor(null, 'red')).toBe('red')
-  expect(sideColor(100, 'blue')).toBe('blue')
-  expect(sideColor(50, 'blue')).toBe('blue')
-  expect(sideColor(49, 'green')).toBe('yellow')
-  expect(sideColor(20, 'green')).toBe('yellow')
-  expect(sideColor(19, 'green')).toBe('red')
-  expect(sideColor(0, 'blue')).toBe('red')
+test('colori d\'allerta: contesto giallo sotto il 55%, limiti gialli sotto il 50% e rossi sotto il 20%', async () => {
+  expect(contextColor(100, 'green')).toBe('green')
+  expect(contextColor(55, 'green')).toBe('green')
+  expect(contextColor(54, 'green')).toBe('yellow')
+  expect(contextColor(0, 'green')).toBe('yellow')
+  expect(contextColor(null, 'green')).toBe('green')
+  expect(limitColor(100, 'blue')).toBe('blue')
+  expect(limitColor(50, 'blue')).toBe('blue')
+  expect(limitColor(49, 'red')).toBe('yellow')
+  expect(limitColor(20, 'red')).toBe('yellow')
+  expect(limitColor(19, 'red')).toBe('red')
+  expect(limitColor(0, 'blue')).toBe('red')
+})
+
+test('hudBlocks: Vita = settimanale, Mana = 5h (entrambe con reset), Vigore = contesto senza reset', async () => {
+  const limits = [
+    { kind: 'five_hour', percentUsed: 40, resetsAt: '1970-01-01T02:00:00Z' },
+    { kind: 'seven_day', percentUsed: 10, resetsAt: '1970-01-04T00:00:00Z' },
+  ]
+  const [life, mana, stamina] = hudBlocks(limits, 25, 0) as [any, any, any]
+  expect(hudBlocks(limits, 25, 0).map(b => b.kind)).toEqual(['life', 'mana', 'stamina'])
+  expect(life).toMatchObject({ label: 'Vita', left: 90, pct: '90%', reset: '3g 0h', alert: 'red' })
+  expect(mana).toMatchObject({ label: 'Mana', left: 60, pct: '60%', reset: '2h 0m', alert: 'blue' })
+  expect(stamina).toMatchObject({ label: 'Vigore', left: 75, pct: '75%', alert: 'green' })
+  expect(stamina.reset).toBeUndefined()
+  // Soglie d'allerta che seguono il dato.
+  const low = hudBlocks([{ kind: 'seven_day', percentUsed: 85, resetsAt: '1970-01-04T00:00:00Z' }], 60, 0)
+  expect(low[0]!.alert).toBe('red')
+  expect(low[2]!.alert).toBe('yellow')
+  // Senza dati: sempre tre blocchi n/d, senza countdown.
+  const empty = hudBlocks([], null, 0)
+  expect(empty.length).toBe(3)
+  for (const b of empty) expect(b).toMatchObject({ left: null, pct: 'n/d' })
+  for (const b of empty) expect(b.reset).toBeUndefined()
+  expect(empty.map(b => b.alert)).toEqual(['red', 'blue', 'green'])
 })
 
 test('pixelBarParts separa la parte piena da quella vuota', async () => {
@@ -34,14 +56,6 @@ test('remainingPct e contextPct gestiscono valori limite e assenti', async () =>
   expect(contextPct({ percent: null })).toBeNull()
   expect(contextPct({ percent: 25.4 })).toBe(25)
   expect(contextPct({ percent: 140 })).toBe(100)
-})
-
-test('etichette HUD', async () => {
-  expect(labelFor('five_hour')).toBe('Mana')
-  expect(labelFor('seven_day')).toBe('Vigore')
-  expect(hudKindFor('five_hour')).toBe('mana')
-  expect(hudKindFor('seven_day')).toBe('stamina')
-  expect(hudKindFor('altro')).toBeUndefined()
 })
 
 test('accessori fantasy validi e distinti; il main e il mago', async () => {
@@ -78,18 +92,18 @@ test('nel Raster gli occhi restano visibili con ogni accessorio e mood', async (
 
 test('hudLayout degrada per larghezza senza mai rompere la riga', async () => {
   const sides = [
+    { label: 'Vita', pct: '90%', reset: '3g 23h' },
     { label: 'Mana', pct: '60%', reset: '1h 43m' },
-    { label: 'Vigore', pct: '90%', reset: '3g 23h' },
+    { label: 'Vigore', pct: '75%' },
   ]
   // Completo: le tre barre sono uguali e si dividono lo spazio libero (max 40).
-  const wide = hudLayout(100, sides)
-  expect(wide).toMatchObject({ show: true, showLabels: true, showReset: true, lifeBar: 27, sideBars: [27, 27] })
-  expect(hudLayout(200, sides)).toMatchObject({ lifeBar: 40, sideBars: [40, 40] })
+  expect(hudLayout(100, sides)).toMatchObject({ show: true, showLabels: true, showReset: true, bar: 27 })
+  expect(hudLayout(200, sides)).toMatchObject({ bar: 40 })
   // 80 colonne: (80 - 3 icone da 5 - 2 spazi da 2) / 3 = 20 per barra.
-  expect(hudLayout(80, sides)).toMatchObject({ show: true, showLabels: true, showReset: true, lifeBar: 20, sideBars: [20, 20] })
+  expect(hudLayout(80, sides)).toMatchObject({ show: true, showLabels: true, showReset: true, bar: 20 })
   // Prima spariscono le etichette (tutte), poi il countdown, poi la fascia.
-  expect(hudLayout(55, sides)).toMatchObject({ show: true, showLabels: false, showReset: true, lifeBar: 12, sideBars: [12, 12] })
-  expect(hudLayout(45, sides)).toMatchObject({ show: true, showLabels: false, showReset: false, lifeBar: 8, sideBars: [8, 8] })
+  expect(hudLayout(55, sides)).toMatchObject({ show: true, showLabels: false, showReset: true, bar: 12 })
+  expect(hudLayout(45, sides)).toMatchObject({ show: true, showLabels: false, showReset: false, bar: 8 })
   expect(hudLayout(20, sides).show).toBe(false)
 
   let labelsGone = false
@@ -107,13 +121,8 @@ test('hudLayout degrada per larghezza senza mai rompere la riga', async () => {
     if (!lay.showReset) resetGone = true
     if (labelsGone) expect(lay.showLabels).toBe(false)
     if (resetGone) expect(lay.showReset).toBe(false)
-    expect(lay.lifeBar).toBeGreaterThanOrEqual(6)
-    expect(lay.sideBars.length).toBe(2)
-    // Le tre barre sono sempre uguali.
-    for (const bar of lay.sideBars) expect(bar).toBe(lay.lifeBar)
+    expect(lay.bar).toBeGreaterThanOrEqual(6)
   }
-  // Senza limiti noti c'e' solo il testo "Mana e Vigore n/d".
-  expect(hudLayout(60, []).show).toBe(true)
   expect(hudLayout(Number.NaN, sides).show).toBe(false)
 })
 

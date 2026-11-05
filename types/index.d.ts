@@ -3,13 +3,10 @@ export type PlanStatus = 'pending' | 'in_progress' | 'completed'
 export type AgentRow = {
   id: string
   label: string
-  type: string
   model: string
   status: 'running' | 'idle' | 'completed' | 'failed'
   done: number
   total: number
-  /** 'plan' = valore reale da update_plan/TodoWrite; 'estimate' = stima dai tool call. */
-  source: 'plan' | 'estimate'
   calls: number
   plan: PlanStatus[]
   slot: number

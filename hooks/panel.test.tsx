@@ -57,6 +57,7 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   on('prompt.submit', (_, e: any) => e)
   on('turn.start', (_, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', (_, e: any) => ({ text: e.answer ?? '' }) as any)
+  on('session.measure', (_, e: any) => ({ changed: e.changed }) as any)
 
   const ev = $ as any
   await ev.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
@@ -121,7 +122,7 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   await compact.unmount()
   await ev.turn.complete({ turnId: 'm2', answer: '' })
 
-  // HUD sopra il prompt: Vita 75% (contesto 25% usato), Mana 60%, Vigore 90%.
+  // HUD sopra il prompt: Vita 90% (settimanale), Mana 60% (5h), Vigore 75% (contesto 25% usato).
   const band = {
     plugin: 'agent-crew',
     component: 'AbovePrompt',
@@ -147,6 +148,9 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   expect(await hudTerm.find({ type: 'Text', text: /75%/ })).toBeDefined()
   expect(await hudTerm.find({ type: 'Text', text: /60%/ })).toBeDefined()
   expect(await hudTerm.find({ type: 'Text', text: /90%/ })).toBeDefined()
+  // Il countdown c'e' in Vita (3g) e Mana (h m), non in Vigore: due soli testi di reset.
+  expect(await hudTerm.find({ type: 'Text', text: /^\d+g \d+h$/ })).toBeDefined()
+  expect(await hudTerm.find({ type: 'Text', text: /^\d+h \d+m$/ })).toBeDefined()
   // Le tre barre hanno la stessa lunghezza di riga di partenza: tutte seconda riga del loro blocco.
   expect((await fullBars(hudTerm)).length).toBe(3)
   await hudTerm.unmount()
@@ -155,6 +159,14 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   expect((await hudDesk.findAll({ type: 'Svg' })).length).toBe(3)
   expect((await hudDesk.findAll({ type: 'Box' })).some(b => b.props.paddingTop === 1)).toBe(false)
   expect(await hudDesk.find({ type: 'Raster' })).toBeUndefined()
+  // Desktop: nessuna barra a caratteri, ma Box colorati con larghezza in percentuale (piena) e flexGrow (traccia).
+  expect(await hudDesk.find({ type: 'Text', text: /[█░]/ })).toBeUndefined()
+  const deskBoxes = await hudDesk.findAll({ type: 'Box' })
+  const fills = deskBoxes.filter(b => b.props.backgroundColor !== undefined && /%$/.test(String(b.props.width ?? '')) && b.props.width !== '100%')
+  expect(fills.map(b => b.props.width).sort()).toEqual(['60%', '75%', '90%'])
+  expect(deskBoxes.filter(b => b.props.backgroundColor !== undefined && b.props.flexGrow === 1).length).toBe(3)
+  // Blocchi Vita/Mana/Vigore con base flex 0 (width 0) e flexGrow: stessa larghezza anche senza countdown.
+  expect(deskBoxes.filter(b => b.props.flexGrow === 1 && b.props.minWidth === 0 && b.props.width === 0).length).toBe(3)
   await hudDesk.unmount()
 
   // Ridimensionamento: etichette tutte insieme o nessuna, mai testo che va a capo.
@@ -181,6 +193,15 @@ test('il pannello disegna agenti, worktree e card su terminale e desktop', async
   expect(await labelsAt(45)).toMatchObject({ present: [false, false, false], bars: 3, allTruncate: true })
   // Troppo stretta: nessuna barra, la fascia lascia il posto al motore.
   expect(await labelsAt(20)).toMatchObject({ present: [false, false, false], bars: 0 })
+
+  // Una misura senza limiti e senza percentuale di contesto non cancella i dati gia' noti.
+  await ev.session.measure({ context: { window: 200000 }, rateLimits: [], changed: ['context'] })
+  const hudKept = await $.ui.mount({ ...band, props: { ...band.props, bodyColumns: 80 }, surface: 'terminal' } as any)
+  expect(await hudKept.find({ type: 'Text', text: /75%/ })).toBeDefined()
+  expect(await hudKept.find({ type: 'Text', text: /60%/ })).toBeDefined()
+  expect(await hudKept.find({ type: 'Text', text: /90%/ })).toBeDefined()
+  expect(await hudKept.find({ type: 'Text', text: /Mana/ })).toBeDefined()
+  await hudKept.unmount()
 
   // Con un sondaggio aperto la fascia cede il posto.
   const hudSurvey = await $.ui.mount({ ...band, props: { ...band.props, hasSurvey: true }, surface: 'terminal' } as any)

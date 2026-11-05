@@ -1,4 +1,4 @@
-import { packCells, toPath } from './claudes'
+import { layer, memo, packCells, pixelSvg } from './claudes'
 import type { Grid, Palette, Pixels } from './claudes'
 
 // Icone 8-bit dell'HUD: Vita (cuore), Mana (pozione blu), Vigore (fulmine).
@@ -14,6 +14,8 @@ interface Icon {
   glyph: string
   /** Colore pieno della barra associata. */
   color: string
+  /** Colore scuro della parte vuota della barra sul desktop (stessa tinta del colore pieno). */
+  track: string
 }
 
 export const ICONS: Record<IconKind, Icon> = {
@@ -34,6 +36,7 @@ export const ICONS: Record<IconKind, Icon> = {
     palette: { R: '#E04646', L: '#FFB3B3' },
     glyph: '✚',
     color: 'red',
+    track: '#4a1c1c',
   },
   mana: {
     big: [
@@ -50,6 +53,7 @@ export const ICONS: Record<IconKind, Icon> = {
     palette: { C: '#8B5A2B', N: '#CFE6FF', B: '#3B7DD8', L: '#9CC8FF' },
     glyph: '⚗',
     color: 'blue',
+    track: '#1c2a4a',
   },
   stamina: {
     big: [
@@ -66,31 +70,18 @@ export const ICONS: Record<IconKind, Icon> = {
     palette: { G: '#4CAF50', S: '#8EE59A', H: '#4CAF50', T: '#2E7D32' },
     glyph: '†',
     color: 'green',
+    track: '#1c3d22',
   },
 }
 
 export const ICON_COLUMNS = 4
 export const ICON_ROWS = 2
 
-const svgCache = new Map<IconKind, string>()
-
 /** Svg 32x32 (8x8 pixel da 4 unita'). */
-export function iconSvg(kind: IconKind): string {
-  const cached = svgCache.get(kind)
-  if (cached !== undefined) return cached
+export const iconSvg: (kind: IconKind) => string = memo(kind => {
   const { big, palette } = ICONS[kind]
-  let paths = ''
-  for (const ch of Object.keys(palette)) {
-    const d = toPath(big, ch)
-    if (d) paths += `<path fill="${palette[ch]}" d="${d}"/>`
-  }
-  const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges">' +
-    paths +
-    '</svg>'
-  svgCache.set(kind, svg)
-  return svg
-}
+  return pixelSvg(32, layer(big, palette))
+})
 
 /** Celle per Raster (4 colonne x 2 righe, 4x4 pixel a mezzi blocchi). */
 export function iconCells(kind: IconKind): string {
